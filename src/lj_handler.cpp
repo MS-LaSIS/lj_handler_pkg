@@ -282,14 +282,16 @@ void LJHandlerNode::set_control_axis(double ratio,
   ratio = std::max(0.0, std::min(1.0, ratio));
   
   // Normalize the desired voltage to a ratio from 0.0 to 1.0
-  double voltage_range = input_voltage_max_ - input_voltage_min_;
-  double master1_ratio = (ratio - input_voltage_min_) / voltage_range;
   
   // Calculate voltage limits
   double master_max_out_v = nom_vs_master * max_perc;
   double master_min_out_v = nom_vs_master * min_perc;
   double slave_min_out_v = nom_vs_slave * min_perc;
   double slave_max_out_v = nom_vs_slave * max_perc;
+
+  double voltage_range = master_max_out_v - master_min_out_v;
+  double master1_ratio = (ratio - master_min_out_v) / voltage_range;
+  
   
   // First pair (M1, S1)
   double master1_voltage = nom_vs_master * ratio;
