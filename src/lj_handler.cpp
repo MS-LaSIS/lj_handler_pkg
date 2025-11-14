@@ -149,6 +149,7 @@ void LJHandlerNode::throttle_callback(const std_msgs::msg::Float32::SharedPtr ms
   // Get throttle value (expected range: -1.0 to 1.0)
   // -1.0 = full brake, 0.0 = neutral, 1.0 = full throttle
   double throttle_value = msg->data;
+  throttle_value = throttle_value / 2.0;
   
   // Detect transition from brake (negative) to throttle (positive)
   if (old_throttle < 0 && throttle_value > 0) {
@@ -220,20 +221,20 @@ void LJHandlerNode::set_steering_angle(double steering_angle_deg)
 {
   // Map steering angle to voltage ratio
   // -max_angle -> 0.0, 0° -> 0.5, +max_angle -> 1.0
-  double ratio = (steering_angle_deg + max_steering_angle_) / (2.0 * max_steering_angle_);
-  ratio = std::max(0.0, std::min(1.0, ratio)); // Clamp to [0, 1]
+  double angle_ratio = (steering_angle_deg + max_steering_angle_) / (2.0 * max_steering_angle_);
+  angle_ratio = std::max(0.0, std::min(1.0, angle_ratio)); // Clamp to [0, 1]
+  
   
   // Read nominal voltages
   double nom_vs_steer_master, nom_vs_steer_slave, ph1, ph2;
   int err = read_nominal_voltages(nom_vs_steer_master, nom_vs_steer_slave, ph1, ph2);
-
   if (err != LJME_NOERROR) {
     RCLCPP_WARN(this->get_logger(), "Failed to read nominal voltages for steering");
     return;
   }
   
   // Apply control using common function
-  set_control_axis(ratio, 
+  set_control_axis(angle_ratio, 
                    nom_vs_steer_master, 
                    nom_vs_steer_slave,
                    steering_dac_names_, 
@@ -288,10 +289,6 @@ void LJHandlerNode::set_control_axis(double ratio,
   double master_min_out_v = nom_vs_master * min_perc;
   double slave_min_out_v = nom_vs_slave * min_perc;
   double slave_max_out_v = nom_vs_slave * max_perc;
-
-  double voltage_range = master_max_out_v - master_min_out_v;
-  double master1_ratio = (ratio - master_min_out_v) / voltage_range;
-  
   
   // First pair (M1, S1)
   double master1_voltage = nom_vs_master * ratio;

@@ -151,7 +151,7 @@ def generate_launch_description():
             'pose_timeout': LaunchConfiguration('pose_timeout'),
             'throttle_timeout': LaunchConfiguration('throttle_timeout'),
             'safety_check_period': LaunchConfiguration('safety_check_period'),
-            'steering_topic': LaunchConfiguration('steering_topic'),
+            'steering_topic': LaunchConfiguration('steer0ing_topic'),
             'throttle_topic': LaunchConfiguration('throttle_topic'),
         }],
         arguments=['--ros-args', '--log-level', log_level],
