@@ -3,6 +3,15 @@
 
 float melex_max_deg = atan(2555.0/4500.0) * 180.0 / M_PI; // approx 29.74 degrees
 
+/**
+* @brief Linearly map a value from one range to another
+ */
+double map(double value, double in_min, double in_max, double out_min, double out_max)
+{
+  return (value - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
+}
+
+
 LJHandlerNode::LJHandlerNode() : Node("lj_handler")
 {
   // Declare parameters for pin assignments
@@ -149,7 +158,6 @@ void LJHandlerNode::throttle_callback(const std_msgs::msg::Float32::SharedPtr ms
   // Get throttle value (expected range: -1.0 to 1.0)
   // -1.0 = full brake, 0.0 = neutral, 1.0 = full throttle
   double throttle_value = msg->data;
-  throttle_value = throttle_value / 2.0;
   
   // Detect transition from brake (negative) to throttle (positive)
   if (old_throttle < 0 && throttle_value > 0) {
@@ -291,15 +299,15 @@ void LJHandlerNode::set_control_axis(double ratio,
   double slave_max_out_v = nom_vs_slave * max_perc;
   
   // First pair (M1, S1)
-  double master1_voltage = nom_vs_master * ratio;
+  double master1_voltage = map(ratio, 0.0, 1.0, master_min_out_v, master_max_out_v);
   master1_voltage = std::max(master_min_out_v, std::min(master_max_out_v, master1_voltage));
   
-  double slave1_voltage = nom_vs_slave * (1.0 - ratio);
+  double slave1_voltage = map(1.0 - ratio, 0.0, 1.0, slave_min_out_v, slave_max_out_v);
   slave1_voltage = std::max(slave_min_out_v, std::min(slave_max_out_v, slave1_voltage));
   
   // Second pair (M2, S2) - can work in opposition or parallel
   double master2_ratio = opposition ? (1.0 - ratio) : ratio;
-  double master2_voltage = nom_vs_master * master2_ratio;
+  double master2_voltage = map(master2_ratio, 0.0, 1.0, master_min_out_v, master_max_out_v);
   master2_voltage = std::max(master_min_out_v, std::min(master_max_out_v, master2_voltage));
   
   double slave2_voltage = nom_vs_slave * (1.0 - master2_ratio);

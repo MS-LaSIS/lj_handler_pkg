@@ -114,7 +114,7 @@ def generate_launch_description():
     
     throttle_topic_arg = DeclareLaunchArgument(
         'throttle_topic',
-        default_value='/follower/acceleration_cmd',
+        default_value='/follower/pedal_cmd',
         description='Topic for throttle/brake commands (Float32, -1.0 to 1.0)'
     )
     
@@ -151,7 +151,7 @@ def generate_launch_description():
             'pose_timeout': LaunchConfiguration('pose_timeout'),
             'throttle_timeout': LaunchConfiguration('throttle_timeout'),
             'safety_check_period': LaunchConfiguration('safety_check_period'),
-            'steering_topic': LaunchConfiguration('steer0ing_topic'),
+            'steering_topic': LaunchConfiguration('steering_topic'),
             'throttle_topic': LaunchConfiguration('throttle_topic'),
         }],
         arguments=['--ros-args', '--log-level', log_level],
