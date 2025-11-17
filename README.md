@@ -1,6 +1,6 @@
 # lj_handler_pkg
 
-ROS 2 package for controlling vehicle steering and throttle/brake using LabJack U3 DAQ device.
+ROS 2 package for controlling vehicle steering and throttle/brake using LabJack T7 device.
 
 ## Overview
 
