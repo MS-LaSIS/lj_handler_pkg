@@ -262,6 +262,8 @@ void LJHandlerNode::set_throttle_brake(double throttle_value)
   // Read nominal voltages
   double ph1, ph2, nom_vs_accbrake_master, nom_vs_accbrake_slave;
   int err = read_nominal_voltages(ph1, ph2, nom_vs_accbrake_master, nom_vs_accbrake_slave);
+  RCLCPP_DEBUG(this->get_logger(), "Nominal voltages - Acc/Brake Master: %.2f V, Slave: %.2f V",
+               nom_vs_accbrake_master, nom_vs_accbrake_slave);
   if (err != LJME_NOERROR) {
     RCLCPP_WARN(this->get_logger(), "Failed to read nominal voltages for throttle");
     return;
@@ -310,7 +312,7 @@ void LJHandlerNode::set_control_axis(double ratio,
   double master2_voltage = map(master2_ratio, 0.0, 1.0, master_min_out_v, master_max_out_v);
   master2_voltage = std::max(master_min_out_v, std::min(master_max_out_v, master2_voltage));
   
-  double slave2_voltage = nom_vs_slave * (1.0 - master2_ratio);
+  double slave2_voltage = map(1.0 - master2_ratio, 0.0, 1.0, slave_min_out_v, slave_max_out_v);
   slave2_voltage = std::max(slave_min_out_v, std::min(slave_max_out_v, slave2_voltage));
   
   // Write voltages to DACs
