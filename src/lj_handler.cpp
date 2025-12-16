@@ -66,7 +66,8 @@ LJHandlerNode::LJHandlerNode() : Node("lj_handler")
   throttle_max_perc_ = this->get_parameter("throttle_max_perc").as_double();
   
   max_steering_angle_ = melex_max_deg;
-  
+  this->offset = 0.15;
+  this->steer_offset =  0.03;
   steering_timeout_sec_ = this->get_parameter("pose_timeout").as_double();
   throttle_timeout_sec_ = this->get_parameter("throttle_timeout").as_double();
   double safety_check_period = this->get_parameter("safety_check_period").as_double();
@@ -123,7 +124,7 @@ LJHandlerNode::~LJHandlerNode()
 {
   // Set steering to center and throttle to zero before closing
   RCLCPP_INFO(this->get_logger(), "Setting steering to center and throttle to zero");
-  set_steering_angle(0.0);
+  set_steering_ratio(0.0);
   set_throttle_brake(0.0);
   
   // Close LabJack handle
@@ -138,16 +139,17 @@ void LJHandlerNode::steering_callback(const std_msgs::msg::Float32::SharedPtr ms
   // Update last steering time
   last_steering_time_ = this->get_clock()->now();
 
-  //convert to degrees
-  double steering_deg = msg->data * 180.0 / M_PI;
-  // Clamp to max steering angle
-  steering_deg = std::max(-steering_clip_, std::min(steering_clip_, steering_deg));
-
-  steering_deg = steering_deg * -1.0;
-  RCLCPP_DEBUG(this->get_logger(), "Steering command: %.2f rad (%.2f deg)", 
-               msg->data, steering_deg);
+  // Input is already a ratio from -1.0 to 1.0
+  // -1.0 = full left, 0.0 = center, 1.0 = full right
+  double steering_ratio = msg->data;
+  steering_ratio = steering_ratio +steer_offset;//> 0.0 ? steering_ratio + steer_offset*2 : steering_ratio - steer_offset; 
+  // Clamp to valid range
+  steering_ratio = std::max(-1.0, std::min(1.0, steering_ratio));
+  //steering_ratio = std::abs(steering_ratio*100) > 12 ? steering_ratio : 0.0;
+  RCLCPP_DEBUG(this->get_logger(), "Steering command: %.2f ratio", steering_ratio);
+  
   // Apply steering
-  set_steering_angle(steering_deg);
+  set_steering_ratio(steering_ratio);
 }
 
 void LJHandlerNode::throttle_callback(const std_msgs::msg::Float32::SharedPtr msg)
@@ -158,7 +160,7 @@ void LJHandlerNode::throttle_callback(const std_msgs::msg::Float32::SharedPtr ms
   // Get throttle value (expected range: -1.0 to 1.0)
   // -1.0 = full brake, 0.0 = neutral, 1.0 = full throttle
   double throttle_value = msg->data;
-  
+  throttle_value += offset; //? throttle_value + offset : throttle_value - offset; 
   // Detect transition from brake (negative) to throttle (positive)
   if (old_throttle < 0 && throttle_value > 0) {
     // Brake was pressed, now trying to accelerate
@@ -225,13 +227,12 @@ void LJHandlerNode::check_safety_timeout()
   }
 }
 
-void LJHandlerNode::set_steering_angle(double steering_angle_deg)
+void LJHandlerNode::set_steering_ratio(double steering_ratio)
 {
-  // Map steering angle to voltage ratio
-  // -max_angle -> 0.0, 0° -> 0.5, +max_angle -> 1.0
-  double angle_ratio = (steering_angle_deg + max_steering_angle_) / (2.0 * max_steering_angle_);
-  angle_ratio = std::max(0.0, std::min(1.0, angle_ratio)); // Clamp to [0, 1]
-  
+  // Input: -1.0 to 1.0, convert to 0.0 to 1.0 for internal use
+  // -1.0 -> 0.0, 0.0 -> 0.5, 1.0 -> 1.0
+  double ratio = (steering_ratio + 1.0) / 2.0;
+  ratio = std::max(0.0, std::min(1.0, ratio)); // Clamp to [0, 1]
   
   // Read nominal voltages
   double nom_vs_steer_master, nom_vs_steer_slave, ph1, ph2;
@@ -242,7 +243,7 @@ void LJHandlerNode::set_steering_angle(double steering_angle_deg)
   }
   
   // Apply control using common function
-  set_control_axis(angle_ratio, 
+  set_control_axis(ratio, 
                    nom_vs_steer_master, 
                    nom_vs_steer_slave,
                    steering_dac_names_, 

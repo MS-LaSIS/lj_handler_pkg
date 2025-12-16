@@ -22,7 +22,7 @@ private:
   void brake_callback(const std_msgs::msg::Float32::SharedPtr msg);
   void check_safety_timeout();
   
-  void set_steering_angle(double steering_angle_deg);
+  void set_steering_ratio(double steering_ratio);
   void set_throttle_brake(double throttle_value);
   void set_control_axis(double desired_voltage, 
                        double nom_vs_master, 
@@ -81,6 +81,8 @@ private:
   rclcpp::Time brake_release_time_;
   double throttle_timeout_sec_;
   
+  float offset;
+  float steer_offset;
   // Safety timer
   rclcpp::TimerBase::SharedPtr safety_timer_;
   

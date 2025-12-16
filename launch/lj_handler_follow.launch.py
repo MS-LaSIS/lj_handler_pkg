@@ -50,13 +50,13 @@ def generate_launch_description():
     # Declare percentage limits for steering
     steering_min_perc_arg = DeclareLaunchArgument(
         'steering_min_perc',
-        default_value='0.15',
+        default_value='0.0',
         description='Minimum percentage of nominal voltage for steering output'
     )
     
     steering_max_perc_arg = DeclareLaunchArgument(
         'steering_max_perc',
-        default_value='0.85',
+        default_value='1.0',
         description='Maximum percentage of nominal voltage for steering output'
     )
     
