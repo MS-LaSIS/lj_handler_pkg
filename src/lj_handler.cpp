@@ -82,6 +82,14 @@ LJHandlerNode::LJHandlerNode() : Node("lj_handler")
   steering_timeout_sec_ = this->get_parameter("pose_timeout").as_double();
   throttle_timeout_sec_ = this->get_parameter("throttle_timeout").as_double();
   double safety_check_period = this->get_parameter("safety_check_period").as_double();
+  brake_to_throttle_delay_ = this->get_parameter("brake_to_throttle_delay").as_double();
+  
+  // Initialize state variables
+  wait_remove_brake = false;
+  old_throttle = 0.0;
+  brake_perc = 0.0;
+  throttle_timed_out_ = false;
+  consecutive_lj_errors_ = 0;
 
   std::string steering_topic = this->get_parameter("steering_topic").as_string();
   std::string throttle_topic = this->get_parameter("throttle_topic").as_string();
@@ -186,6 +194,7 @@ void LJHandlerNode::throttle_callback(const std_msgs::msg::Float32::SharedPtr ms
 {
   // Update last throttle time
   last_throttle_time_ = this->get_clock()->now();
+  throttle_timed_out_ = false;
   
   // Get throttle value (expected range: -1.0 to 1.0)
   // -1.0 = full brake, 0.0 = neutral, 1.0 = full throttle
@@ -243,22 +252,43 @@ void LJHandlerNode::check_safety_timeout()
 {
   rclcpp::Time current_time = this->get_clock()->now();
   
-  // Check throttle timeout
-  double throttle_time_diff = (current_time - last_throttle_time_).seconds();
-  if (throttle_time_diff > throttle_timeout_sec_) {
-    RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 1000,
-                        "Throttle timeout (%.2fs since last message) - setting to zero", 
-                        throttle_time_diff);
+  // Check LabJack health - escalate on consecutive failures
+  if (consecutive_lj_errors_ >= LJ_ERROR_CRITICAL_THRESHOLD) {
+    RCLCPP_ERROR(this->get_logger(),
+                 "LabJack unresponsive after %d consecutive errors - shutting down",
+                 consecutive_lj_errors_);
+    rclcpp::shutdown();
+    return;
+  } else if (consecutive_lj_errors_ >= LJ_ERROR_WARN_THRESHOLD) {
+    RCLCPP_ERROR(this->get_logger(),
+                 "LabJack communication failing (%d consecutive errors) - attempting emergency stop",
+                 consecutive_lj_errors_);
     set_throttle_brake(0.0);
   }
 
-  // Optional: Check steering timeout
+  // Check throttle timeout
+  double throttle_time_diff = (current_time - last_throttle_time_).seconds();
+  if (throttle_time_diff > throttle_timeout_sec_) {
+    if (!throttle_timed_out_) {
+      RCLCPP_WARN(this->get_logger(),
+                  "Throttle timeout (%.2fs since last message) - setting to zero",
+                  throttle_time_diff);
+      set_throttle_brake(0.0);
+      throttle_timed_out_ = true;
+    }
+  }
+
+  // Check steering timeout - stop acceleration but don't touch steering
+  // (changing trajectory blindly could make things worse)
   double steering_time_diff = (current_time - last_steering_time_).seconds();
   if (steering_time_diff > steering_timeout_sec_) {
-    RCLCPP_DEBUG_THROTTLE(this->get_logger(), *this->get_clock(), 5000,
-                         "Steering timeout (%.2fs since last message)", steering_time_diff);
-    // Optionally set steering to center on timeout
-    // set_steering_ratio(0.0);
+    if (!throttle_timed_out_) {
+      RCLCPP_WARN(this->get_logger(),
+                  "Steering timeout (%.2fs since last message) - stopping acceleration",
+                  steering_time_diff);
+      set_throttle_brake(0.0);
+      throttle_timed_out_ = true;
+    }
   }
 }
 
@@ -360,12 +390,15 @@ void LJHandlerNode::set_control_axis(double ratio,
   int err = LJM_eWriteNames(handle_, 4, dac_names_arr, voltages, &errorAddress);
   
   if (err != LJME_NOERROR) {
+    consecutive_lj_errors_++;
     char errName[LJM_MAX_NAME_SIZE];
     LJM_ErrorToString(err, errName);
     RCLCPP_WARN(this->get_logger(), "Error writing to %s DACs: %s (address: %d)", 
                 axis_name.c_str(), errName, errorAddress);
     return;
   }
+  
+  consecutive_lj_errors_ = 0;
   
   RCLCPP_INFO(this->get_logger(),
               "%s: %.1f%% -> M1: %.2fV, S1: %.2fV | M2: %.2fV, S2: %.2fV",
@@ -394,6 +427,9 @@ int LJHandlerNode::read_nominal_voltages(double& nom_vs_steer_master,
     nom_vs_steer_slave = values[1];
     nom_vs_accbrake_master = values[2];
     nom_vs_accbrake_slave = values[3];
+    consecutive_lj_errors_ = 0;
+  } else {
+    consecutive_lj_errors_++;
   }
   
   return err;

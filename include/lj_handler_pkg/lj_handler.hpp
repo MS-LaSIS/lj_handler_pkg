@@ -86,8 +86,12 @@ private:
   
   // Safety timer
   rclcpp::TimerBase::SharedPtr safety_timer_;
+  bool throttle_timed_out_;
+  int consecutive_lj_errors_;
   
   static constexpr int INITIAL_ERR_ADDRESS = -1;
+  static constexpr int LJ_ERROR_WARN_THRESHOLD = 3;
+  static constexpr int LJ_ERROR_CRITICAL_THRESHOLD = 10;
 };
 
 #endif // LJ_HANDLER_PKG__LJ_HANDLER_HPP_
