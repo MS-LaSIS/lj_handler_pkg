@@ -9,7 +9,7 @@ This package provides a ROS 2 node that interfaces with a LabJack T7 device to c
 ## Features
 
 - **Dual-axis control**: Independent steering and throttle/brake control
-- **Safety timeouts**: Automatic zeroing on command timeout
+- **Multi-layer failsafe**: Timeout monitoring, LabJack health checks, and escalation logic
 - **Brake transition delay**: Configurable neutral period when transitioning from brake to throttle
 - **Voltage mapping**: Configurable min/max voltage percentages for safe operation
 - **Master/Slave DAC control**: Redundant voltage control in opposition mode
@@ -178,24 +178,77 @@ ros2 topic pub --once /follower/acceleration_cmd std_msgs/msg/Float32 "{data: -1
 
 ## Safety Features
 
-### Timeout Protection
+### Multi-Layer Failsafe System
 
-If no command is received within the `throttle_timeout` period (default 0.5s), the throttle/brake is automatically set to zero (neutral).
+The system implements a comprehensive failsafe architecture with three independent monitoring systems:
+
+#### 1. Throttle Timeout Protection
+
+If no throttle/acceleration command is received within the `throttle_timeout` period (default 0.5s), the throttle/brake is automatically set to zero (neutral). This prevents unintended acceleration due to communication loss.
+
+**Behavior:**
+- First timeout event: Throttle set to 0.0, warning logged
+- Subsequent timeouts: No action (flag prevents redundant writes)
+- Recovery: Flag resets when new throttle command arrives
 
 ```bash
-# Monitor safety timeout warnings
+# Monitor throttle timeout warnings
 ros2 run lj_handler_pkg lj_handler --ros-args --log-level warn
 ```
 
-### Brake-to-Throttle Transition Delay
+#### 2. Steering Timeout Protection
+
+If no steering command is received within the `pose_timeout` period (default 0.5s), the system stops acceleration (sets throttle to 0.0) but **does not modify steering**. This prevents blindly changing trajectory while already in motion.
+
+**Rationale:** If steering communication fails, changing the steering angle without knowing the current vehicle state could make the situation worse. Stopping acceleration is the safer choice.
+
+**Behavior:**
+- First timeout event: Throttle set to 0.0, warning logged
+- Steering remains at last known position
+- Recovery: Flag resets when new steering command arrives
+
+#### 3. LabJack Health Monitoring with Escalation
+
+The system continuously monitors LabJack communication health. If the device becomes unresponsive, it escalates through two stages:
+
+**Error Thresholds:**
+- **0-2 consecutive errors**: Healthy state, normal operation
+- **3-9 consecutive errors** (WARN threshold): Emergency stop attempted
+  - Logs error message with error count
+  - Attempts to write throttle = 0.0 via `set_throttle_brake(0.0)`
+  - If write succeeds, error counter resets to 0
+  - If write fails, error counter increments toward critical
+- **10+ consecutive errors** (CRITICAL threshold): Device assumed offline
+  - Logs final error message
+  - Immediately shuts down node with `rclcpp::shutdown()`
+  - Prevents further attempts to communicate with device
+
+**Error Counter Reset:**
+- Resets to 0 on successful LJM read/write operations
+- Read operation failure: `read_nominal_voltages()` - increments counter
+- Write operation failure: `set_control_axis()` (DAC writes) - increments counter
+
+**Example Timeline:**
+```
+Error 1: Normal operation, counter = 1
+Error 2: Normal operation, counter = 2
+Error 3: WARNING logged, attempt emergency stop, counter = 3
+Success: Counter resets to 0
+Error 4-9: Each escalates warning, recovery attempts
+Error 10: CRITICAL, node shutdown
+```
+
+### Throttle-to-Brake Transition Safety
 
 When transitioning from braking (negative value) to acceleration (positive value), the system enforces a configurable neutral period to prevent drivetrain shock.
 
 **Behavior:**
 1. User is braking (`throttle < 0`)
 2. User commands acceleration (`throttle > 0`)
-3. System forces neutral (`throttle = 0`) for `brake_to_throttle_delay` seconds
-4. After delay, acceleration command is applied
+3. System detects transition and starts neutral period
+4. For `brake_to_throttle_delay` seconds (default 0.3s): forces neutral (`throttle = 0.0`)
+5. Additional delay based on brake intensity: `delay + abs(brake_value)/2`
+6. After total delay, acceleration command is applied
 
 **Configuration:**
 ```bash
@@ -204,7 +257,7 @@ ros2 launch lj_handler_pkg lj_handler.launch.py brake_to_throttle_delay:=0.5
 
 ### Voltage Clamping
 
-All output voltages are clamped to configured min/max percentages for safety reasons.
+All output voltages are clamped to configured min/max percentages for safety reasons. This prevents accidental over-voltage or under-voltage conditions on the actuators.
 
 ## Hardware Setup
 
@@ -301,12 +354,13 @@ ros2 run lj_handler_pkg lj_handler --ros-args --log-level info
 colcon build --packages-select lj_handler_pkg --cmake-args -DCMAKE_BUILD_TYPE=Debug
 ```
 
-### Running Tests
+### Code Structure
 
-```bash
-colcon test --packages-select lj_handler_pkg
-colcon test-result --verbose
-```
+- `src/lj_handler.cpp` - Main node implementation
+- `include/lj_handler_pkg/lj_handler.hpp` - Class declarations
+- `launch/` - Launch file configurations
+
+**Note on Testing:** This package currently does not include unit tests. Comprehensive failsafe logic is implemented and validated through real-world testing. Integration tests with actual LabJack hardware are recommended for future development.
 
 ## Vehicle Specifications
 
