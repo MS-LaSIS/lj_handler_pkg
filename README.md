@@ -1,4 +1,9 @@
-# lj_handler_pkg
+# lj_handler_pkg (DEPRECATED)
+
+> **This branch is no longer maintained.**
+> The features implemented here (direct steering/throttle ratio input with offsets) have been moved to the `main` branch via the `input_mode` parameter. Use `input_mode:="ratio"` on `main` to get the same behavior.
+
+---
 
 ROS 2 package for controlling vehicle steering and throttle/brake using LabJack T7 device.
 
