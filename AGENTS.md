@@ -248,6 +248,12 @@ def generate_launch_description():
 
 ## Important Notes
 
+### Commits
+- **ALWAYS ask the user before committing**. Do not automatically commit changes even if the build and tests pass. Verify with the user that everything is correct before creating a commit.
+- Pre-commit hook automatically runs build and unit tests - if they fail, fix the issues before asking to commit.
+- Only commit when the user explicitly requests it or confirms the changes are correct.
+
+### Other Notes
 - Copyright check is disabled in CMakeLists.txt (`ament_cmake_copyright_FOUND TRUE`)
 - No dedicated unit tests exist; testing relies on ament linters
 - The node requires a LabJack T7 device connected via USB
