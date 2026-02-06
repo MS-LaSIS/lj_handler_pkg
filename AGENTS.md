@@ -8,10 +8,14 @@ ROS 2 package (ament_cmake) for controlling vehicle steering and throttle/brake 
 
 ## Docker Environment
 
-**IMPORTANT**: ROS 2 and colcon are only available inside the `ros2_prova` Docker container.
+**IMPORTANT**: ROS 2 and colcon are only available inside the `ros2_prova` Docker container, or other container, in case ask the user the container to use.
 
 ```bash
-# Start the Docker container (from host)
+# First, find the full path to your ROS 2 workspace:
+# Navigate to this package directory and run:
+pwd
+
+# Then use that path in the Docker volume mount (replace /path/to/ros2/workspace):
 docker container run -it --rm --privileged \
   -v /dev/:/dev/ \
   --env="DISPLAY" \
@@ -19,14 +23,18 @@ docker container run -it --rm --privileged \
   --volume="/tmp/.X11-unix:/tmp/.X11-unix:rw" \
   --device /dev/video0 \
   --device /dev/video1 \
-  -v ~/Documenti/Progetti/ros2:/home/emanuele/Documenti/Progetti/ros2 \
+  -v /path/to/ros2/workspace:/home/ros2_ws \
   --net=host \
   --name="prova" \
   --hostname="docker" \
   ros2_prova
 
-# The workspace is mounted at: /home/emanuele/Documenti/Progetti/ros2/ros2_ws
+# Example (replace with your actual path):
+# pwd might return: /home/user/Documenti/Progetti/ros2/ros2_ws/src/lj_handler_pkg
+# Then mount: -v /home/user/Documenti/Progetti/ros2/ros2_ws:/home/ros2_ws
 ```
+
+**Inside the Docker container**, the workspace will be available at `/home/ros2_ws`
 
 **If the Docker image is not available**, the Dockerfile can be downloaded from:
 https://github.com/emanuelenencioni/docker_images (inside `ros_humble_desktop_full_cpu` directory)
