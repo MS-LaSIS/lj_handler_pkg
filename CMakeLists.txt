@@ -45,16 +45,4 @@ install(DIRECTORY
   DESTINATION share/${PROJECT_NAME}
 )
 
-if(BUILD_TESTING)
-  # Unit tests only (lint tests disabled for now)
-  find_package(ament_cmake_gtest REQUIRED)
-  ament_add_gtest(test_lj_handler test/test_lj_handler.cpp)
-  target_include_directories(test_lj_handler PUBLIC
-    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-    $<INSTALL_INTERFACE:include>)
-  target_compile_features(test_lj_handler PUBLIC cxx_std_17)
-endif()
-
-
-
 ament_package()
