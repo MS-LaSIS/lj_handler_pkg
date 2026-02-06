@@ -79,9 +79,87 @@ source install/setup.bash
 - `steering_topic` (string, default: "/follower/steering_cmd"): Steering command topic
 - `throttle_topic` (string, default: "/follower/pedal_cmd"): Throttle/brake command topic
 
-## Usage
+#### Calibration Offsets (Dynamically Reconfigurable)
+- `steering_offset` (double, default: 0.0): Steering offset for calibration (only "ratio" and "copy" modes). **Dynamically reconfigurable via `ros2 param set` or rqt dynamic reconfigure**
+- `throttle_offset` (double, default: 0.0): Throttle offset for calibration (only "ratio" and "copy" modes). **Dynamically reconfigurable via `ros2 param set` or rqt dynamic reconfigure**
 
-### Launch with Default Parameters
+**Note on Dynamic Reconfiguration:** Only `steering_offset` and `throttle_offset` are dynamically reconfigurable. All other parameters are read-only (for now). Parameter changes are only allowed when the throttle command is at zero for safety reasons.
+
+## Dynamic Reconfiguration
+
+### Overview
+
+The node supports dynamic reconfiguration of two calibration parameters without requiring a restart:
+
+- `steering_offset`: Adjust steering center/neutral position
+- `throttle_offset`: Adjust throttle center/neutral position
+
+All other parameters are **read-only (for now)**.
+
+### Using rqt Dynamic Reconfigure
+
+Graphically adjust calibration offsets using rqt:
+
+```bash
+# Terminal 1: Launch the node
+ros2 launch lj_handler_pkg lj_handler.launch.py input_mode:=ratio
+
+# Terminal 2: Open rqt with dynamic reconfigure plugin
+rqt --standalone rqt_reconfigure
+```
+
+Then in the rqt window:
+1. Select `lj_handler_node` from the left panel
+2. You will see sliders for `steering_offset` and `throttle_offset`
+3. Adjust the sliders to calibrate
+4. Other parameters are read-only (for now)
+
+### Using Command Line
+
+Adjust parameters via `ros2 param set`:
+
+```bash
+# Set steering offset
+ros2 param set /lj_handler_node steering_offset 0.05
+
+# Set throttle offset
+ros2 param set /lj_handler_node throttle_offset -0.02
+
+# View current values
+ros2 param get /lj_handler_node steering_offset
+ros2 param get /lj_handler_node throttle_offset
+```
+
+### Safety Constraints
+
+Parameter changes are **only allowed when throttle is at zero** (threshold: 0.01). This prevents unintended vehicle behavior during calibration.
+
+**Example error:**
+```
+Error: Cannot change steering_offset: throttle must be zero (current: 0.15)
+```
+
+To set parameters:
+1. Ensure vehicle is stopped
+2. Set throttle command to 0.0
+3. Adjust the parameter
+4. Vehicle will respond immediately with new calibration
+
+### Parameter Change Logging
+
+All parameter changes are logged with timestamps:
+
+```
+[INFO] Parameter change: steering_offset 0.000 -> 0.050 (timestamp: 1738865430.123456)
+[INFO] Parameter change: throttle_offset 0.000 -> -0.020 (timestamp: 1738865431.654321)
+```
+
+View logs with:
+```bash
+ros2 launch lj_handler_pkg lj_handler.launch.py log_level:=info
+```
+
+## Usage
 
 ```bash
 ros2 launch lj_handler_pkg lj_handler.launch.py
