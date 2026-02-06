@@ -47,16 +47,16 @@ def generate_launch_description():
         description='Maximum input voltage for control signals (V)'
     )
     
-    # Declare percentage limits for steering
+    # Declare percentage limits for steering (full range for ratio mode)
     steering_min_perc_arg = DeclareLaunchArgument(
         'steering_min_perc',
-        default_value='0.15',
+        default_value='0.0',
         description='Minimum percentage of nominal voltage for steering output'
     )
     
     steering_max_perc_arg = DeclareLaunchArgument(
         'steering_max_perc',
-        default_value='0.85',
+        default_value='1.0',
         description='Maximum percentage of nominal voltage for steering output'
     )
     
@@ -105,18 +105,39 @@ def generate_launch_description():
         description='Period for safety timeout checks in seconds'
     )
     
-    # Declare topic parameters
+    # Declare topic parameters (ratio mode uses /delay/ topic for steering)
     steering_topic_arg = DeclareLaunchArgument(
         'steering_topic',
-        default_value='/follower/steering_cmd',
-        description='Topic for steering commands (Float32 in radians)'
+        default_value='/delay/steering_cmd',
+        description='Topic for steering commands (Float32 ratio -1 to 1)'
     )
     
     throttle_topic_arg = DeclareLaunchArgument(
         'throttle_topic',
-        default_value='/follower/pedal_cmd',
+        default_value='/leader/pedal_cmd',
         description='Topic for throttle/brake commands (Float32, -1.0 to 1.0)'
     )
+
+    # Declare input mode parameter (ratio mode for copying commands)
+    input_mode_arg = DeclareLaunchArgument(
+        'input_mode',
+        default_value='ratio',
+        description='Input mode: "angle" (radians from controller) or "ratio" (direct -1 to 1)'
+    )
+
+    # Declare offset parameters (calibration values for ratio mode)
+    steering_offset_arg = DeclareLaunchArgument(
+        'steering_offset',
+        default_value='0.03',
+        description='Steering offset for calibration (used in ratio mode)'
+    )
+
+    throttle_offset_arg = DeclareLaunchArgument(
+        'throttle_offset',
+        default_value='0.15',
+        description='Throttle offset for calibration (used in ratio mode)'
+    )
+
     # Declare log level
     log_level_arg = DeclareLaunchArgument(
         'log_level',
@@ -152,6 +173,9 @@ def generate_launch_description():
             'safety_check_period': LaunchConfiguration('safety_check_period'),
             'steering_topic': LaunchConfiguration('steering_topic'),
             'throttle_topic': LaunchConfiguration('throttle_topic'),
+            'input_mode': LaunchConfiguration('input_mode'),
+            'steering_offset': LaunchConfiguration('steering_offset'),
+            'throttle_offset': LaunchConfiguration('throttle_offset'),
         }],
         arguments=['--ros-args', '--log-level', log_level],
         emulate_tty=True,
@@ -182,6 +206,10 @@ def generate_launch_description():
         # Topics
         steering_topic_arg,
         throttle_topic_arg,
+        # Input mode and offsets
+        input_mode_arg,
+        steering_offset_arg,
+        throttle_offset_arg,
         # Logging
         log_level_arg,
         # Node

@@ -22,7 +22,7 @@ private:
   void brake_callback(const std_msgs::msg::Float32::SharedPtr msg);
   void check_safety_timeout();
   
-  void set_steering_angle(double steering_angle_deg);
+  void set_steering_ratio(double steering_ratio);
   void set_throttle_brake(double throttle_value);
   void set_control_axis(double desired_voltage, 
                        double nom_vs_master, 
@@ -62,8 +62,11 @@ private:
   double center_voltage_;
   
   // Steering parameters
+  std::string input_mode_;  // "angle" or "ratio"
   double max_steering_angle_;
   double steering_clip_;
+  double steering_offset_;
+  double throttle_offset_;
   double old_throttle;
 
   // Steering subscription
