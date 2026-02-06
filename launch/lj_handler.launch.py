@@ -125,17 +125,17 @@ def generate_launch_description():
         description='Input mode: "angle" (radians from controller) or "ratio" (direct -1 to 1)'
     )
 
-    # Declare offset parameters (used in ratio mode)
+    # Declare offset parameters (used in ratio mode, dynamically reconfigurable)
     steering_offset_arg = DeclareLaunchArgument(
         'steering_offset',
         default_value='0.0',
-        description='Steering offset for calibration (used in ratio mode)'
+        description='Steering offset for calibration (dynamically reconfigurable via ros2 param set)'
     )
 
     throttle_offset_arg = DeclareLaunchArgument(
         'throttle_offset',
         default_value='0.0',
-        description='Throttle offset for calibration (used in ratio mode)'
+        description='Throttle offset for calibration (dynamically reconfigurable via ros2 param set)'
     )
 
     # Declare log level

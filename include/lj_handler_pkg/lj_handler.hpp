@@ -4,6 +4,7 @@
 #include <rclcpp/rclcpp.hpp>
 #include <geometry_msgs/msg/pose_with_covariance_stamped.hpp>
 #include <std_msgs/msg/float32.hpp>
+#include <rcl_interfaces/msg/set_parameters_result.hpp>
 #include <LabJackM.h>
 #include <string>
 #include <vector>
@@ -68,6 +69,11 @@ private:
   double steering_offset_;
   double throttle_offset_;
   double old_throttle;
+  
+  // Dynamic reconfigure callback handle
+  rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr param_callback_handle_;
+  rcl_interfaces::msg::SetParametersResult on_parameter_change(
+    const std::vector<rclcpp::Parameter> & parameters);
 
   // Steering subscription
   rclcpp::Subscription<std_msgs::msg::Float32>::SharedPtr steering_sub_;

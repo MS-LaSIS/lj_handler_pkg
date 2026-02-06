@@ -36,8 +36,8 @@ LJHandlerNode::LJHandlerNode() : Node("lj_handler")
   this->declare_parameter<double>("max_steering_angle", melex_max_deg); // degrees
   this->declare_parameter<double>("steering_clip", 20); // Steering clip factor in degrees
   
-  // Declare input mode: "angle" (radians from controller) or "ratio" (direct -1 to 1)
-  this->declare_parameter<std::string>("input_mode", "angle");
+   // Declare input mode: "angle" (radians from controller) or "ratio" (direct -1 to 1)
+   this->declare_parameter<std::string>("input_mode", "angle");
   
   // Declare offset parameters (used in ratio mode for calibration)
   this->declare_parameter<double>("steering_offset", 0.0);
@@ -126,12 +126,16 @@ LJHandlerNode::LJHandlerNode() : Node("lj_handler")
     throttle_topic, 10,
     std::bind(&LJHandlerNode::throttle_callback, this, std::placeholders::_1));
   
-  // Create safety timer to check for timeouts
-  safety_timer_ = this->create_wall_timer(
-    std::chrono::duration<double>(safety_check_period),
-    std::bind(&LJHandlerNode::check_safety_timeout, this));
-  
-  RCLCPP_INFO(this->get_logger(), "LJ Handler Node initialized");
+   // Create safety timer to check for timeouts
+   safety_timer_ = this->create_wall_timer(
+     std::chrono::duration<double>(safety_check_period),
+     std::bind(&LJHandlerNode::check_safety_timeout, this));
+   
+   // Register parameter change callback for dynamic reconfiguration
+   param_callback_handle_ = this->add_on_set_parameters_callback(
+     std::bind(&LJHandlerNode::on_parameter_change, this, std::placeholders::_1));
+   
+   RCLCPP_INFO(this->get_logger(), "LJ Handler Node initialized");
   RCLCPP_INFO(this->get_logger(), "Input mode: '%s'", input_mode_.c_str());
   RCLCPP_INFO(this->get_logger(), "Subscribing to steering topic: '%s'", steering_topic.c_str());
   RCLCPP_INFO(this->get_logger(), "Subscribing to throttle topic: '%s'", throttle_topic.c_str());
@@ -156,6 +160,56 @@ LJHandlerNode::~LJHandlerNode()
     LJM_Close(handle_);
     RCLCPP_INFO(this->get_logger(), "LabJack connection closed");
   }
+}
+
+rcl_interfaces::msg::SetParametersResult LJHandlerNode::on_parameter_change(
+  const std::vector<rclcpp::Parameter> & parameters)
+{
+  rcl_interfaces::msg::SetParametersResult result;
+  result.successful = true;
+  result.reason = "";
+
+  for (const auto & param : parameters) {
+    // Only allow reconfiguration of steering_offset and throttle_offset
+    if (param.get_name() == "steering_offset") {
+      // Check safety constraint: throttle must be zero
+      if (std::abs(old_throttle) > 0.01) {
+        result.successful = false;
+        result.reason = "Cannot change steering_offset: throttle must be zero (current: " +
+                       std::to_string(old_throttle) + ")";
+        RCLCPP_WARN(this->get_logger(), "%s", result.reason.c_str());
+        break;
+      }
+      
+      double new_offset = param.as_double();
+      auto now = this->get_clock()->now();
+      RCLCPP_INFO(this->get_logger(),
+                 "Parameter change: steering_offset %.3f -> %.3f (timestamp: %.6f)",
+                 steering_offset_, new_offset,
+                 now.seconds());
+      steering_offset_ = new_offset;
+    }
+    else if (param.get_name() == "throttle_offset") {
+      // Check safety constraint: throttle must be zero
+      if (std::abs(old_throttle) > 0.01) {
+        result.successful = false;
+        result.reason = "Cannot change throttle_offset: throttle must be zero (current: " +
+                       std::to_string(old_throttle) + ")";
+        RCLCPP_WARN(this->get_logger(), "%s", result.reason.c_str());
+        break;
+      }
+      
+      double new_offset = param.as_double();
+      auto now = this->get_clock()->now();
+      RCLCPP_INFO(this->get_logger(),
+                 "Parameter change: throttle_offset %.3f -> %.3f (timestamp: %.6f)",
+                 throttle_offset_, new_offset,
+                 now.seconds());
+      throttle_offset_ = new_offset;
+    }
+  }
+
+  return result;
 }
 
 void LJHandlerNode::steering_callback(const std_msgs::msg::Float32::SharedPtr msg)
