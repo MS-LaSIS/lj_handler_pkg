@@ -46,14 +46,13 @@ install(DIRECTORY
 )
 
 if(BUILD_TESTING)
-  find_package(ament_lint_auto REQUIRED)
-  # the following line skips the linter which checks for copyrights
-  # comment the line when a copyright and license is added to all source files
-  set(ament_cmake_copyright_FOUND TRUE)
-  # the following line skips cpplint (only works in a git repo)
-  # comment the line when this package is in a git repo and when
-  # a copyright and license is added to all source files
-
+  # Unit tests only (lint tests disabled for now)
+  find_package(ament_cmake_gtest REQUIRED)
+  ament_add_gtest(test_lj_handler test/test_lj_handler.cpp)
+  target_include_directories(test_lj_handler PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<INSTALL_INTERFACE:include>)
+  target_compile_features(test_lj_handler PUBLIC cxx_std_17)
 endif()
 
 
