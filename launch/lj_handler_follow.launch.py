@@ -101,14 +101,14 @@ def generate_launch_description():
     
     safety_check_period_arg = DeclareLaunchArgument(
         'safety_check_period',
-        default_value='0.1',
+        default_value='0.4',
         description='Period for safety timeout checks in seconds'
     )
     
     # Declare topic parameters (ratio mode uses /delay/ topic for steering)
     steering_topic_arg = DeclareLaunchArgument(
         'steering_topic',
-        default_value='/delay/steering_cmd',
+        default_value='/leader/steering_cmd',
         description='Topic for steering commands (Float32 ratio -1 to 1)'
     )
     

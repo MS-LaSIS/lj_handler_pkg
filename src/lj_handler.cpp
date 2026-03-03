@@ -258,6 +258,10 @@ void LJHandlerNode::throttle_callback(const std_msgs::msg::Float32::SharedPtr ms
   if (input_mode_ == "ratio") {
     throttle_value += throttle_offset_;
   }
+  if(msg->data > 1.0){
+    //RCLCPP_WARNING(this->get_logger(),"SOMETHING NASTY with acceleration")
+    throttle_value = 0.0; 
+  }
   
   // Detect transition from brake (negative) to throttle (positive)
   if (old_throttle < 0 && throttle_value > 0) {
@@ -397,7 +401,7 @@ void LJHandlerNode::set_throttle_brake(double throttle_value)
                    throttle_min_perc_, 
                    throttle_max_perc_,
                    "Throttle",
-                   false); // opposition mode
+                   true); // opposition mode
 }
 
 void LJHandlerNode::set_control_axis(double ratio,
