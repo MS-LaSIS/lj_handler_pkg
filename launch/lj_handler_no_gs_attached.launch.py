@@ -5,9 +5,6 @@ from launch_ros.actions import Node
 import os
 
 
-DEBUG = os.getenv('DEBUG', default='False').lower() == 'true' or os.getenv('DEBUG', default='False').lower() == '1'
-
-
 def generate_launch_description():
     # Declare launch arguments for pin assignments
     nominal_vs_steer_M_pin_arg = DeclareLaunchArgument(
@@ -142,12 +139,10 @@ def generate_launch_description():
     log_level_arg = DeclareLaunchArgument(
         'log_level',
         default_value='info',
-        description='Log level (debug, info, warn, error, fatal)'
+        description='ROS log level (debug, info, warn, error, fatal). '
+                    'For per-category debug output use the DEBUG env var: '
+                    'DEBUG=steering,pedal,voltages,dac,safety,params  or  DEBUG=1 for all.'
     )
-    
-    
-    # Determine log level from DEBUG environment variable or launch argument
-    log_level = 'debug' if DEBUG else 'info'
     
     # Create the lj_handler_node
     lj_handler_node = Node(
@@ -177,7 +172,7 @@ def generate_launch_description():
             'steering_offset': LaunchConfiguration('steering_offset'),
             'throttle_offset': LaunchConfiguration('throttle_offset'),
         }],
-        arguments=['--ros-args', '--log-level', log_level],
+        arguments=['--ros-args', '--log-level', LaunchConfiguration('log_level')],
         emulate_tty=True,
     )
     

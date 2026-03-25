@@ -1,5 +1,7 @@
 #include "lj_handler_pkg/lj_handler.hpp"
 #include <cmath>
+#include <cstdlib>
+#include <sstream>
 
 float melex_max_deg = atan(2555.0/4500.0) * 180.0 / M_PI; // approx 29.74 degrees
 
@@ -72,7 +74,7 @@ LJHandlerNode::LJHandlerNode() : Node("lj_handler")
   throttle_min_perc_ = this->get_parameter("throttle_min_perc").as_double();
   throttle_max_perc_ = this->get_parameter("throttle_max_perc").as_double();
   
-  max_steering_angle_ = melex_max_deg;
+  max_steering_angle_ = this->get_parameter("max_steering_angle").as_double();
   
   // Get input mode and offsets
   input_mode_ = this->get_parameter("input_mode").as_string();
@@ -134,6 +136,31 @@ LJHandlerNode::LJHandlerNode() : Node("lj_handler")
    // Register parameter change callback for dynamic reconfiguration
    param_callback_handle_ = this->add_on_set_parameters_callback(
      std::bind(&LJHandlerNode::on_parameter_change, this, std::placeholders::_1));
+
+   // Parse DEBUG env var into debug category set
+   // Usage: DEBUG=1 or DEBUG=all  -> all categories
+   //        DEBUG=steering,pedal  -> only those categories
+   // Categories: steering, pedal, voltages, dac, safety, params
+   const char* debug_env = std::getenv("DEBUG");
+   if (debug_env != nullptr) {
+     static const std::vector<std::string> ALL_CATEGORIES =
+       {"steering", "pedal", "voltages", "dac", "safety", "params"};
+     std::string debug_str(debug_env);
+     if (debug_str == "1" || debug_str == "all" || debug_str == "true") {
+       debug_categories_.insert(ALL_CATEGORIES.begin(), ALL_CATEGORIES.end());
+     } else {
+       std::istringstream ss(debug_str);
+       std::string token;
+       while (std::getline(ss, token, ',')) {
+         // trim whitespace
+         token.erase(0, token.find_first_not_of(" \t"));
+         token.erase(token.find_last_not_of(" \t") + 1);
+         if (!token.empty()) {
+           debug_categories_.insert(token);
+         }
+       }
+     }
+   }
    
    RCLCPP_INFO(this->get_logger(), "LJ Handler Node initialized");
   RCLCPP_INFO(this->get_logger(), "Input mode: '%s'", input_mode_.c_str());
@@ -145,6 +172,14 @@ LJHandlerNode::LJHandlerNode() : Node("lj_handler")
   if (input_mode_ == "ratio") {
     RCLCPP_INFO(this->get_logger(), "Steering offset: %.3f, Throttle offset: %.3f", 
                 steering_offset_, throttle_offset_);
+  }
+  if (!debug_categories_.empty()) {
+    std::string cats;
+    for (const auto & c : debug_categories_) {
+      if (!cats.empty()) cats += ", ";
+      cats += c;
+    }
+    RCLCPP_INFO(this->get_logger(), "Debug categories enabled: [%s]", cats.c_str());
   }
 }
 
@@ -162,6 +197,11 @@ LJHandlerNode::~LJHandlerNode()
   }
 }
 
+bool LJHandlerNode::is_debug(const std::string & category) const
+{
+  return debug_categories_.count(category) > 0;
+}
+
 rcl_interfaces::msg::SetParametersResult LJHandlerNode::on_parameter_change(
   const std::vector<rclcpp::Parameter> & parameters)
 {
@@ -170,42 +210,155 @@ rcl_interfaces::msg::SetParametersResult LJHandlerNode::on_parameter_change(
   result.reason = "";
 
   for (const auto & param : parameters) {
-    // Only allow reconfiguration of steering_offset and throttle_offset
-    if (param.get_name() == "steering_offset") {
-      // Check safety constraint: throttle must be zero
+    const std::string & name = param.get_name();
+
+    // --- Offset parameters: require throttle to be zero (safety guard) ---
+    if (name == "steering_offset") {
       if (std::abs(old_throttle) > 0.01) {
         result.successful = false;
         result.reason = "Cannot change steering_offset: throttle must be zero (current: " +
-                       std::to_string(old_throttle) + ")";
+                        std::to_string(old_throttle) + ")";
         RCLCPP_WARN(this->get_logger(), "%s", result.reason.c_str());
         break;
       }
-      
-      double new_offset = param.as_double();
-      auto now = this->get_clock()->now();
-      RCLCPP_INFO(this->get_logger(),
-                 "Parameter change: steering_offset %.3f -> %.3f (timestamp: %.6f)",
-                 steering_offset_, new_offset,
-                 now.seconds());
-      steering_offset_ = new_offset;
+      double new_val = param.as_double();
+      if (is_debug("params")) {
+        RCLCPP_INFO(this->get_logger(),
+                    "[params] steering_offset %.3f -> %.3f", steering_offset_, new_val);
+      }
+      steering_offset_ = new_val;
     }
-    else if (param.get_name() == "throttle_offset") {
-      // Check safety constraint: throttle must be zero
+    else if (name == "throttle_offset") {
       if (std::abs(old_throttle) > 0.01) {
         result.successful = false;
         result.reason = "Cannot change throttle_offset: throttle must be zero (current: " +
-                       std::to_string(old_throttle) + ")";
+                        std::to_string(old_throttle) + ")";
         RCLCPP_WARN(this->get_logger(), "%s", result.reason.c_str());
         break;
       }
-      
-      double new_offset = param.as_double();
-      auto now = this->get_clock()->now();
-      RCLCPP_INFO(this->get_logger(),
-                 "Parameter change: throttle_offset %.3f -> %.3f (timestamp: %.6f)",
-                 throttle_offset_, new_offset,
-                 now.seconds());
-      throttle_offset_ = new_offset;
+      double new_val = param.as_double();
+      if (is_debug("params")) {
+        RCLCPP_INFO(this->get_logger(),
+                    "[params] throttle_offset %.3f -> %.3f", throttle_offset_, new_val);
+      }
+      throttle_offset_ = new_val;
+    }
+
+    // --- Voltage range parameters ---
+    else if (name == "input_voltage_min") {
+      double new_val = param.as_double();
+      if (is_debug("params")) {
+        RCLCPP_INFO(this->get_logger(),
+                    "[params] input_voltage_min %.3f -> %.3f", input_voltage_min_, new_val);
+      }
+      input_voltage_min_ = new_val;
+      center_voltage_ = (input_voltage_max_ + input_voltage_min_) / 2.0;
+    }
+    else if (name == "input_voltage_max") {
+      double new_val = param.as_double();
+      if (is_debug("params")) {
+        RCLCPP_INFO(this->get_logger(),
+                    "[params] input_voltage_max %.3f -> %.3f", input_voltage_max_, new_val);
+      }
+      input_voltage_max_ = new_val;
+      center_voltage_ = (input_voltage_max_ + input_voltage_min_) / 2.0;
+    }
+
+    // --- Steering percentage limits ---
+    else if (name == "steering_min_perc") {
+      double new_val = param.as_double();
+      if (is_debug("params")) {
+        RCLCPP_INFO(this->get_logger(),
+                    "[params] steering_min_perc %.3f -> %.3f", steering_min_perc_, new_val);
+      }
+      steering_min_perc_ = new_val;
+    }
+    else if (name == "steering_max_perc") {
+      double new_val = param.as_double();
+      if (is_debug("params")) {
+        RCLCPP_INFO(this->get_logger(),
+                    "[params] steering_max_perc %.3f -> %.3f", steering_max_perc_, new_val);
+      }
+      steering_max_perc_ = new_val;
+    }
+
+    // --- Throttle percentage limits ---
+    else if (name == "throttle_min_perc") {
+      double new_val = param.as_double();
+      if (is_debug("params")) {
+        RCLCPP_INFO(this->get_logger(),
+                    "[params] throttle_min_perc %.3f -> %.3f", throttle_min_perc_, new_val);
+      }
+      throttle_min_perc_ = new_val;
+    }
+    else if (name == "throttle_max_perc") {
+      double new_val = param.as_double();
+      if (is_debug("params")) {
+        RCLCPP_INFO(this->get_logger(),
+                    "[params] throttle_max_perc %.3f -> %.3f", throttle_max_perc_, new_val);
+      }
+      throttle_max_perc_ = new_val;
+    }
+
+    // --- Steering geometry parameters ---
+    else if (name == "max_steering_angle") {
+      double new_val = param.as_double();
+      if (is_debug("params")) {
+        RCLCPP_INFO(this->get_logger(),
+                    "[params] max_steering_angle %.2f -> %.2f deg", max_steering_angle_, new_val);
+      }
+      max_steering_angle_ = new_val;
+    }
+    else if (name == "steering_clip") {
+      double new_val = param.as_double();
+      if (is_debug("params")) {
+        RCLCPP_INFO(this->get_logger(),
+                    "[params] steering_clip %.2f -> %.2f deg", steering_clip_, new_val);
+      }
+      steering_clip_ = new_val;
+    }
+
+    // --- Input mode ---
+    else if (name == "input_mode") {
+      std::string new_val = param.as_string();
+      if (new_val != "angle" && new_val != "ratio") {
+        result.successful = false;
+        result.reason = "input_mode must be \"angle\" or \"ratio\", got: " + new_val;
+        RCLCPP_WARN(this->get_logger(), "%s", result.reason.c_str());
+        break;
+      }
+      if (is_debug("params")) {
+        RCLCPP_INFO(this->get_logger(),
+                    "[params] input_mode \"%s\" -> \"%s\"", input_mode_.c_str(), new_val.c_str());
+      }
+      input_mode_ = new_val;
+    }
+
+    // --- Timeout parameters ---
+    else if (name == "pose_timeout") {
+      double new_val = param.as_double();
+      if (is_debug("params")) {
+        RCLCPP_INFO(this->get_logger(),
+                    "[params] pose_timeout %.3fs -> %.3fs", steering_timeout_sec_, new_val);
+      }
+      steering_timeout_sec_ = new_val;
+    }
+    else if (name == "throttle_timeout") {
+      double new_val = param.as_double();
+      if (is_debug("params")) {
+        RCLCPP_INFO(this->get_logger(),
+                    "[params] throttle_timeout %.3fs -> %.3fs", throttle_timeout_sec_, new_val);
+      }
+      throttle_timeout_sec_ = new_val;
+    }
+    else if (name == "brake_to_throttle_delay") {
+      double new_val = param.as_double();
+      if (is_debug("params")) {
+        RCLCPP_INFO(this->get_logger(),
+                    "[params] brake_to_throttle_delay %.3fs -> %.3fs",
+                    brake_to_throttle_delay_, new_val);
+      }
+      brake_to_throttle_delay_ = new_val;
     }
   }
 
@@ -224,7 +377,10 @@ void LJHandlerNode::steering_callback(const std_msgs::msg::Float32::SharedPtr ms
     // -1.0 = full left, 0.0 = center, 1.0 = full right
     steering_ratio = msg->data + steering_offset_;
     steering_ratio = std::max(-1.0, std::min(1.0, steering_ratio));
-    RCLCPP_DEBUG(this->get_logger(), "Steering command (ratio mode): %.3f", steering_ratio);
+    if (is_debug("steering")) {
+      RCLCPP_INFO(this->get_logger(), "[steering] ratio mode: raw=%.3f offset=%.3f -> ratio=%.3f",
+                  msg->data, steering_offset_, steering_ratio);
+    }
   } else {
     // Default: "angle" mode - input is in radians from controller
     // Convert to degrees
@@ -235,9 +391,13 @@ void LJHandlerNode::steering_callback(const std_msgs::msg::Float32::SharedPtr ms
     steering_deg = steering_deg * -1.0;
     // Convert degrees to ratio: -max_angle -> -1.0, 0 -> 0.0, +max_angle -> 1.0
     steering_ratio = steering_deg / max_steering_angle_;
+    steering_ratio += steering_offset_;
     steering_ratio = std::max(-1.0, std::min(1.0, steering_ratio));
-    RCLCPP_DEBUG(this->get_logger(), "Steering command (angle mode): %.2f rad -> %.2f deg -> %.3f ratio", 
-                 msg->data, steering_deg, steering_ratio);
+    if (is_debug("steering")) {
+      RCLCPP_INFO(this->get_logger(),
+                  "[steering] angle mode: %.2f rad -> %.2f deg -> ratio=%.3f",
+                  msg->data, steering_deg, steering_ratio);
+    }
   }
   
   // Apply steering
@@ -284,9 +444,11 @@ void LJHandlerNode::throttle_callback(const std_msgs::msg::Float32::SharedPtr ms
       // Still in waiting period - force neutral
       throttle_value = 0.0;
       
-      RCLCPP_DEBUG_THROTTLE(this->get_logger(), *this->get_clock(), 500,
-                           "Neutral period: %.2fs / %.2fs",
-                           time_since_brake_release, brake_to_throttle_delay_);
+      if (is_debug("pedal")) {
+        RCLCPP_INFO_THROTTLE(this->get_logger(), *this->get_clock(), 500,
+                             "[pedal] neutral period: %.2fs / %.2fs",
+                             time_since_brake_release, brake_to_throttle_delay_);
+      }
     } else {
       // Waiting period complete
       wait_remove_brake = false;
@@ -299,7 +461,9 @@ void LJHandlerNode::throttle_callback(const std_msgs::msg::Float32::SharedPtr ms
   // Clamp to valid range
   throttle_value = std::max(-1.0, std::min(1.0, throttle_value));
   
-  RCLCPP_DEBUG(this->get_logger(), "Throttle command: %.2f", throttle_value);
+  if (is_debug("pedal")) {
+    RCLCPP_INFO(this->get_logger(), "[pedal] throttle command: %.2f", throttle_value);
+  }
   
   // Apply throttle/brake
   set_throttle_brake(throttle_value);
@@ -309,6 +473,14 @@ void LJHandlerNode::throttle_callback(const std_msgs::msg::Float32::SharedPtr ms
 void LJHandlerNode::check_safety_timeout()
 {
   rclcpp::Time current_time = this->get_clock()->now();
+
+  if (is_debug("safety")) {
+    double steer_diff = (current_time - last_steering_time_).seconds();
+    double thr_diff   = (current_time - last_throttle_time_).seconds();
+    RCLCPP_INFO_THROTTLE(this->get_logger(), *this->get_clock(), 1000,
+                         "[safety] steer_age=%.2fs (limit=%.2fs)  throttle_age=%.2fs (limit=%.2fs)",
+                         steer_diff, steering_timeout_sec_, thr_diff, throttle_timeout_sec_);
+  }
   
   // Check LabJack health - escalate on consecutive failures
   if (consecutive_lj_errors_ >= LJ_ERROR_CRITICAL_THRESHOLD) {
@@ -386,11 +558,13 @@ void LJHandlerNode::set_throttle_brake(double throttle_value)
   // Read nominal voltages
   double ph1, ph2, nom_vs_accbrake_master, nom_vs_accbrake_slave;
   int err = read_nominal_voltages(ph1, ph2, nom_vs_accbrake_master, nom_vs_accbrake_slave);
-  RCLCPP_DEBUG(this->get_logger(), "Nominal voltages - Acc/Brake Master: %.2f V, Slave: %.2f V",
-               nom_vs_accbrake_master, nom_vs_accbrake_slave);
   if (err != LJME_NOERROR) {
     RCLCPP_WARN(this->get_logger(), "Failed to read nominal voltages for throttle");
     return;
+  }
+  if (is_debug("voltages")) {
+    RCLCPP_INFO(this->get_logger(), "[voltages] Acc/Brake Master: %.3f V, Slave: %.3f V",
+                nom_vs_accbrake_master, nom_vs_accbrake_slave);
   }
   
   // Apply control using common function
@@ -458,10 +632,12 @@ void LJHandlerNode::set_control_axis(double ratio,
   
   consecutive_lj_errors_ = 0;
   
-  RCLCPP_INFO(this->get_logger(),
-              "%s: %.1f%% -> M1: %.2fV, S1: %.2fV | M2: %.2fV, S2: %.2fV",
-              axis_name.c_str(), ratio * 100.0,
-              master1_voltage, slave1_voltage, master2_voltage, slave2_voltage);
+  if (is_debug("dac")) {
+    RCLCPP_INFO(this->get_logger(),
+                "[dac] %s: %.1f%% -> M1: %.3fV, S1: %.3fV | M2: %.3fV, S2: %.3fV",
+                axis_name.c_str(), ratio * 100.0,
+                master1_voltage, slave1_voltage, master2_voltage, slave2_voltage);
+  }
 }
 
 int LJHandlerNode::read_nominal_voltages(double& nom_vs_steer_master,

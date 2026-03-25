@@ -6,6 +6,7 @@
 #include <std_msgs/msg/float32.hpp>
 #include <rcl_interfaces/msg/set_parameters_result.hpp>
 #include <LabJackM.h>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -74,6 +75,12 @@ private:
   rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr param_callback_handle_;
   rcl_interfaces::msg::SetParametersResult on_parameter_change(
     const std::vector<rclcpp::Parameter> & parameters);
+
+  // Debug category helpers
+  // Categories: "steering", "pedal", "voltages", "dac", "safety", "params"
+  // Enabled via DEBUG env var: DEBUG=steering,pedal  or  DEBUG=1 / DEBUG=all
+  bool is_debug(const std::string & category) const;
+  std::set<std::string> debug_categories_;
 
   // Steering subscription
   rclcpp::Subscription<std_msgs::msg::Float32>::SharedPtr steering_sub_;
