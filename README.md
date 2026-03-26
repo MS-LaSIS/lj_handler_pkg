@@ -30,7 +30,7 @@ This package provides a ROS 2 node that interfaces with a LabJack T7 device to c
 ```bash
 # Download and install LabJack LJM library
 cd /tmp
-wget https://labjack.com/sites/default/files/software/labjack_ljm_software_2019_07_16_x86_64.tar.gz
+wget https://support.labjack.com/docs/ljm-software-installer-downloads-t4-t7-t8-digit
 tar -xzf labjack_ljm_software_2019_07_16_x86_64.tar.gz
 cd labjack_ljm_software_2019_07_16_x86_64
 sudo ./labjack_ljm_installer.run
