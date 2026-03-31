@@ -375,6 +375,7 @@ void LJHandlerNode::steering_callback(const std_msgs::msg::Float32::SharedPtr ms
   if (input_mode_ == "ratio") {
     // Input is already a ratio from -1.0 to 1.0
     // -1.0 = full left, 0.0 = center, 1.0 = full right
+    // TODO: check the correct direction of the ratio (may need to invert)
     steering_ratio = msg->data + steering_offset_;
     steering_ratio = std::max(-1.0, std::min(1.0, steering_ratio));
     if (is_debug("steering")) {
