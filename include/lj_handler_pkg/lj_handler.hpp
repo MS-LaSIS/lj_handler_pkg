@@ -26,6 +26,11 @@ private:
   
   void set_steering_ratio(double steering_ratio);
   void set_throttle_brake(double throttle_value);
+
+  // Throttle LUT
+  bool validate_and_load_lut(const std::vector<double> & in, const std::vector<double> & out);
+  double apply_throttle_lut(double ratio);  // input/output: [0.0, 1.0]
+
   void set_control_axis(double desired_voltage, 
                        double nom_vs_master, 
                        double nom_vs_slave,
@@ -101,6 +106,11 @@ private:
   rclcpp::TimerBase::SharedPtr safety_timer_;
   bool throttle_timed_out_;
   int consecutive_lj_errors_;
+
+  // Throttle lookup table (positive side only)
+  std::vector<double> throttle_lut_input_;
+  std::vector<double> throttle_lut_output_;
+  bool throttle_lut_enabled_;
   
   static constexpr int INITIAL_ERR_ADDRESS = -1;
   static constexpr int LJ_ERROR_WARN_THRESHOLD = 3;

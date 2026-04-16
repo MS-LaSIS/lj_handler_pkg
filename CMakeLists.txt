@@ -45,4 +45,10 @@ install(DIRECTORY
   DESTINATION share/${PROJECT_NAME}
 )
 
+# Install config files (throttle LUT and other configs)
+install(DIRECTORY
+  config
+  DESTINATION share/${PROJECT_NAME}
+)
+
 ament_package()

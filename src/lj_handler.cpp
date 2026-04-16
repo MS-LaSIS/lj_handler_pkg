@@ -1,4 +1,5 @@
 #include "lj_handler_pkg/lj_handler.hpp"
+#include <algorithm>
 #include <cmath>
 #include <cstdlib>
 #include <sstream>
@@ -57,6 +58,10 @@ LJHandlerNode::LJHandlerNode() : Node("lj_handler")
   // Declare brake to throttle delay
   this->declare_parameter<double>("brake_to_throttle_delay", 0.3);  // 0.5 seconds
   
+  // Declare throttle LUT parameters (loaded from config/throttle_lut.yaml)
+  this->declare_parameter<std::vector<double>>("throttle_lut_input",  std::vector<double>{});
+  this->declare_parameter<std::vector<double>>("throttle_lut_output", std::vector<double>{});
+  
   // Get parameters
   nominal_vs_steer_master_pin_ = this->get_parameter("nominal_vs_steer_M_pin").as_string();
   nominal_vs_steer_slave_pin_ = this->get_parameter("nominal_vs_steer_S_pin").as_string();
@@ -85,6 +90,22 @@ LJHandlerNode::LJHandlerNode() : Node("lj_handler")
   throttle_timeout_sec_ = this->get_parameter("throttle_timeout").as_double();
   double safety_check_period = this->get_parameter("safety_check_period").as_double();
   brake_to_throttle_delay_ = this->get_parameter("brake_to_throttle_delay").as_double();
+  
+  // Load throttle LUT
+  throttle_lut_enabled_ = false;
+  {
+    auto lut_in  = this->get_parameter("throttle_lut_input").as_double_array();
+    auto lut_out = this->get_parameter("throttle_lut_output").as_double_array();
+    if (!lut_in.empty() || !lut_out.empty()) {
+      if (!validate_and_load_lut(lut_in, lut_out)) {
+        RCLCPP_WARN(this->get_logger(),
+                    "Throttle LUT invalid at startup - falling back to linear mapping");
+      }
+    } else {
+      RCLCPP_INFO(this->get_logger(),
+                  "Throttle LUT not configured - using linear mapping");
+    }
+  }
   
   // Initialize state variables
   wait_remove_brake = false;
@@ -180,6 +201,12 @@ LJHandlerNode::LJHandlerNode() : Node("lj_handler")
       cats += c;
     }
     RCLCPP_INFO(this->get_logger(), "Debug categories enabled: [%s]", cats.c_str());
+  }
+  if (throttle_lut_enabled_) {
+    RCLCPP_INFO(this->get_logger(), "Throttle LUT active: %zu points, monotone cubic interpolation",
+                throttle_lut_input_.size());
+  } else {
+    RCLCPP_INFO(this->get_logger(), "Throttle LUT disabled: using linear mapping for positive throttle");
   }
 }
 
@@ -332,6 +359,49 @@ rcl_interfaces::msg::SetParametersResult LJHandlerNode::on_parameter_change(
                     "[params] input_mode \"%s\" -> \"%s\"", input_mode_.c_str(), new_val.c_str());
       }
       input_mode_ = new_val;
+    }
+
+    // --- Throttle LUT parameters ---
+    else if (name == "throttle_lut_input" || name == "throttle_lut_output") {
+      // Safety guard: do not change LUT while throttle is active
+      if (std::abs(old_throttle) > 0.01) {
+        result.successful = false;
+        result.reason = "Cannot change throttle LUT while throttle is active (current: " +
+                        std::to_string(old_throttle) + "). Set throttle to zero first.";
+        RCLCPP_WARN(this->get_logger(), "%s", result.reason.c_str());
+        break;
+      }
+      // Re-read both arrays after potential update
+      // Note: the new value is in 'param'; the other array is already in the parameter server
+      std::vector<double> new_in, new_out;
+      if (name == "throttle_lut_input") {
+        new_in  = param.as_double_array();
+        new_out = this->get_parameter("throttle_lut_output").as_double_array();
+      } else {
+        new_in  = this->get_parameter("throttle_lut_input").as_double_array();
+        new_out = param.as_double_array();
+      }
+
+      if (new_in.empty() && new_out.empty()) {
+        throttle_lut_enabled_ = false;
+        throttle_lut_input_.clear();
+        throttle_lut_output_.clear();
+        RCLCPP_INFO(this->get_logger(), "[params] Throttle LUT cleared - using linear mapping");
+      } else if (!validate_and_load_lut(new_in, new_out)) {
+        // validate_and_load_lut already logged the reason; disable LUT for safety
+        throttle_lut_enabled_ = false;
+        RCLCPP_WARN(this->get_logger(),
+                    "[params] Throttle LUT update rejected - keeping previous state");
+        result.successful = false;
+        result.reason = "throttle_lut invalid: check sizes match, input is strictly monotonic, "
+                        "and all values are in [0.0, 1.0]";
+        break;
+      } else {
+        if (is_debug("params")) {
+          RCLCPP_INFO(this->get_logger(),
+                      "[params] Throttle LUT updated: %zu points", throttle_lut_input_.size());
+        }
+      }
     }
 
     // --- Timeout parameters ---
@@ -555,6 +625,19 @@ void LJHandlerNode::set_throttle_brake(double throttle_value)
   // -1.0 -> 0.0, 0.0 -> 0.5, 1.0 -> 1.0
   double throttle_ratio = (throttle_value + 1.0) / 2.0;
   throttle_ratio = std::max(0.0, std::min(1.0, throttle_ratio)); // Clamp to [0, 1]
+
+  // Apply LUT correction on the positive (throttle) side only: ratio in (0.5, 1.0]
+  // Rescale to local [0, 1], apply LUT, rescale back to [0.5, 1.0]
+  if (throttle_lut_enabled_ && throttle_ratio > 0.5) {
+    double local_in  = (throttle_ratio - 0.5) * 2.0;       // [0, 1]
+    double local_out = apply_throttle_lut(local_in);         // [0, 1]
+    throttle_ratio   = 0.5 + local_out * 0.5;               // back to [0.5, 1.0]
+    if (is_debug("pedal")) {
+      RCLCPP_INFO(this->get_logger(),
+                  "[pedal] LUT: local_in=%.3f -> local_out=%.3f -> throttle_ratio=%.3f",
+                  local_in, local_out, throttle_ratio);
+    }
+  }
   
   // Read nominal voltages
   double ph1, ph2, nom_vs_accbrake_master, nom_vs_accbrake_slave;
@@ -668,6 +751,114 @@ int LJHandlerNode::read_nominal_voltages(double& nom_vs_steer_master,
   }
   
   return err;
+}
+
+bool LJHandlerNode::validate_and_load_lut(
+  const std::vector<double> & in,
+  const std::vector<double> & out)
+{
+  // Must have at least 2 points and equal size
+  if (in.size() < 2 || in.size() != out.size()) {
+    RCLCPP_WARN(this->get_logger(),
+                "Throttle LUT validation failed: need >= 2 points with matching sizes "
+                "(got input=%zu, output=%zu)", in.size(), out.size());
+    return false;
+  }
+
+  // All values must be in [0.0, 1.0] and input strictly monotonically increasing
+  for (size_t i = 0; i < in.size(); ++i) {
+    if (in[i] < 0.0 || in[i] > 1.0 || out[i] < 0.0 || out[i] > 1.0) {
+      RCLCPP_WARN(this->get_logger(),
+                  "Throttle LUT validation failed: value out of [0.0, 1.0] at index %zu "
+                  "(in=%.3f, out=%.3f)", i, in[i], out[i]);
+      return false;
+    }
+    if (i > 0 && in[i] <= in[i - 1]) {
+      RCLCPP_WARN(this->get_logger(),
+                  "Throttle LUT validation failed: input not strictly monotonic at index %zu "
+                  "(in[%zu]=%.3f <= in[%zu]=%.3f)", i, i, in[i], i - 1, in[i - 1]);
+      return false;
+    }
+  }
+
+  throttle_lut_input_   = in;
+  throttle_lut_output_  = out;
+  throttle_lut_enabled_ = true;
+  return true;
+}
+
+double LJHandlerNode::apply_throttle_lut(double x)
+{
+  // Clamp input to [0.0, 1.0]
+  x = std::max(0.0, std::min(1.0, x));
+
+  const auto & xs = throttle_lut_input_;
+  const auto & ys = throttle_lut_output_;
+  const size_t n  = xs.size();
+
+  // Boundary conditions: return exact endpoint values
+  if (x <= xs.front()) { return ys.front(); }
+  if (x >= xs.back())  { return ys.back(); }
+
+  // Find segment: xs[i-1] <= x < xs[i]
+  size_t i = static_cast<size_t>(
+    std::lower_bound(xs.begin(), xs.end(), x) - xs.begin());
+  if (i == 0) { i = 1; }
+
+  // --- Fritsch-Carlson monotone cubic interpolation ---
+  // Compute secant slopes for this segment and neighbors
+  auto secant = [&](size_t k) {
+    return (ys[k] - ys[k - 1]) / (xs[k] - xs[k - 1]);
+  };
+
+  // Tangent at left point (i-1)
+  double m0;
+  if (i == 1) {
+    m0 = secant(1);
+  } else {
+    m0 = 0.5 * (secant(i - 1) + secant(i));
+  }
+
+  // Tangent at right point (i)
+  double m1;
+  if (i == n - 1) {
+    m1 = secant(n - 1);
+  } else {
+    m1 = 0.5 * (secant(i) + secant(i + 1));
+  }
+
+  // Fritsch-Carlson monotonicity constraint
+  double delta = secant(i);
+  if (std::abs(delta) < 1e-12) {
+    // Flat segment: force tangents to zero to avoid spurious oscillations
+    m0 = 0.0;
+    m1 = 0.0;
+  } else {
+    double alpha = m0 / delta;
+    double beta  = m1 / delta;
+    double r     = alpha * alpha + beta * beta;
+    if (r > 9.0) {
+      double tau = 3.0 / std::sqrt(r);
+      m0 = tau * alpha * delta;
+      m1 = tau * beta  * delta;
+    }
+  }
+
+  // Cubic Hermite evaluation
+  double h  = xs[i] - xs[i - 1];
+  double t  = (x - xs[i - 1]) / h;
+  double t2 = t * t;
+  double t3 = t2 * t;
+
+  double h00 =  2.0 * t3 - 3.0 * t2 + 1.0;
+  double h10 =        t3 - 2.0 * t2 + t;
+  double h01 = -2.0 * t3 + 3.0 * t2;
+  double h11 =        t3 -       t2;
+
+  double result = h00 * ys[i - 1] + h10 * h * m0 + h01 * ys[i] + h11 * h * m1;
+
+  // Clamp output to [0.0, 1.0] as safety guard
+  return std::max(0.0, std::min(1.0, result));
 }
 
 int main(int argc, char** argv)

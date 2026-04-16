@@ -171,7 +171,11 @@ def generate_launch_description():
             'input_mode': LaunchConfiguration('input_mode'),
             'steering_offset': LaunchConfiguration('steering_offset'),
             'throttle_offset': LaunchConfiguration('throttle_offset'),
-        }],
+        },
+        os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            'config', 'throttle_lut.yaml'
+        )],
         arguments=['--ros-args', '--log-level', LaunchConfiguration('log_level')],
         emulate_tty=True,
     )
