@@ -9,6 +9,7 @@ This package provides a ROS 2 node that interfaces with a LabJack T7 device to c
 ## Features
 
 - **Dual-axis control**: Independent steering and throttle/brake control
+- **Hardware emergency brake**: Reads a dedicated analog input; if the safety button drives the line to ≥4 V the node immediately applies 100% brake and publishes on `/emergency_brake`
 - **Multi-layer failsafe**: Timeout monitoring, LabJack health checks, and escalation logic
 - **Brake transition delay**: Configurable neutral period when transitioning from brake to throttle
 - **Voltage mapping**: Configurable min/max voltage percentages for safe operation
@@ -75,6 +76,11 @@ source install/setup.bash
 - `safety_check_period` (double, default: 0.1): Safety check timer period in seconds
 - `brake_to_throttle_delay` (double, default: 0.3): Neutral period duration when transitioning from brake to throttle (seconds)
 
+#### Emergency Brake (Hardware Safety Button)
+- `safety_ain_pin` (string, default: "AIN0"): LabJack analog input pin connected to the hardware safety button. **Dynamically reconfigurable** (blocked while emergency is active).
+- `safety_voltage_threshold` (double, default: 4.0): Voltage threshold in V above which the emergency brake is triggered. **Dynamically reconfigurable**.
+- `safety_ain_check_period` (double, default: 0.02): Poll period in seconds for the safety AIN input (default 50 Hz). **Not dynamically reconfigurable** — requires node restart.
+
 #### Topics
 - `steering_topic` (string, default: "/follower/steering_cmd"): Steering command topic
 - `throttle_topic` (string, default: "/follower/pedal_cmd"): Throttle/brake command topic
@@ -83,7 +89,7 @@ source install/setup.bash
 - `steering_offset` (double, default: 0.0): Steering offset for calibration (only "ratio" and "copy" modes). **Dynamically reconfigurable via `ros2 param set` or rqt dynamic reconfigure**
 - `throttle_offset` (double, default: 0.0): Throttle offset for calibration (only "ratio" and "copy" modes). **Dynamically reconfigurable via `ros2 param set` or rqt dynamic reconfigure**
 
-**Note on Dynamic Reconfiguration:** Only `steering_offset` and `throttle_offset` are dynamically reconfigurable. All other parameters are read-only (for now). Parameter changes are only allowed when the throttle command is at zero for safety reasons.
+**Note on Dynamic Reconfiguration:** The following parameters are dynamically reconfigurable at runtime: `steering_offset`, `throttle_offset`, `safety_ain_pin`, `safety_voltage_threshold`. All other parameters are read-only and require a node restart. Offset changes are only allowed when throttle is at zero. `safety_ain_pin` changes are blocked while an emergency brake is active.
 
 ## Dynamic Reconfiguration
 
@@ -216,6 +222,13 @@ ros2 run lj_handler_pkg lj_handler --ros-args \
   - `0.0` = neutral
   - `+1.0` = full throttle
 
+### Published Topics
+
+- **`/emergency_brake`** (`std_msgs/Bool`)
+  - Published on state transitions of the hardware safety button
+  - `true`: emergency brake has been activated (button pressed or AIN unreadable for ≥100 ms)
+  - `false`: emergency brake has been released (button released, normal operation resuming)
+
 
 ## Command Examples
 
@@ -337,11 +350,57 @@ ros2 launch lj_handler_pkg lj_handler.launch.py brake_to_throttle_delay:=0.5
 
 All output voltages are clamped to configured min/max percentages for safety reasons. This prevents accidental over-voltage or under-voltage conditions on the actuators.
 
+#### 4. Hardware Safety Button (Emergency Brake)
+
+A dedicated high-frequency timer (default 50 Hz) continuously reads a configurable analog input pin connected to a hardware safety button. When the button is pressed it drives the line to 5 V; the node detects this and applies 100% brake through the existing throttle/brake DAC chain.
+
+**Why this is needed:** The safety button cuts the vehicle's engine/power supply, but the vehicle keeps rolling under inertia. This rule actively applies the brake actuator to stop the vehicle.
+
+**Trigger conditions:**
+- Voltage on `safety_ain_pin` reaches or exceeds `safety_voltage_threshold` (default 4.0 V)
+- OR the AIN read fails for 5 consecutive ticks (100 ms at 50 Hz) — fail-safe on sensor loss
+
+**While active:**
+- All incoming throttle/brake commands are silently ignored (logged at 1 Hz)
+- `set_throttle_brake(-1.0)` is called every timer tick (every 20 ms) to continuously hold full brake
+- State is published on `/emergency_brake` (`true`)
+- Steering commands are **not** blocked — the driver can still steer
+
+**Release:**
+- When voltage drops below threshold the flag clears, throttle is set to 0.0, `throttle_timed_out_` is set to force a fresh command before any acceleration resumes
+- State is published on `/emergency_brake` (`false`)
+
+**AIN read error behaviour:**
+
+| Consecutive failures | Action |
+|---|---|
+| 1–4 | Log WARN (throttled 1 s), keep current state |
+| 5+ | Trigger emergency brake as fail-safe, log ERROR |
+| First success | Reset error counter to 0 |
+
+**Monitoring:**
+```bash
+# Watch the emergency brake state
+ros2 topic echo /emergency_brake
+
+# Adjust threshold at runtime (takes effect on next 50 Hz tick)
+ros2 param set /lj_handler_node safety_voltage_threshold 3.5
+
+# Change the pin (only allowed when emergency is NOT active)
+ros2 param set /lj_handler_node safety_ain_pin AIN1
+```
+
+**Startup log line:**
+```
+[INFO] Emergency brake: pin=AIN0 threshold=4.00V poll=50Hz
+```
+
 ## Hardware Setup
 
 ### LabJack T7 Connections
 
 #### Analog Inputs (Reading nominal voltages)
+- **AIN0**: Hardware safety button signal (0 V = released, 5 V = pressed)
 - **AIN10**: Steering Master nominal voltage
 - **AIN12**: Steering Slave nominal voltage
 - **AIN6**: Throttle/Brake Master nominal voltage
@@ -362,6 +421,9 @@ The package uses 4 DAC channels per axis (8 total):
 
 ```
 LabJack T7
+├── Safety Button
+│   └── AIN0 ← Safety button signal (0 V = released, 5 V = pressed)
+│
 ├── Steering System
 │   ├── AIN10 ← Master nominal voltage sensor
 │   ├── AIN12 ← Slave nominal voltage sensor
@@ -416,6 +478,25 @@ ros2 topic hz /follower/acceleration_cmd  # Should be > 2 Hz (for 0.5s timeout)
 # Check brake-to-throttle transition
 ros2 run lj_handler_pkg lj_handler --ros-args --log-level info
 # Look for "Brake-to-throttle transition detected" message
+```
+
+### Emergency brake unexpectedly active
+
+```bash
+# Check the emergency brake state and current AIN voltage
+ros2 topic echo /emergency_brake
+
+# Check node logs for the trigger reason
+# Look for "EMERGENCY BRAKE TRIGGERED" lines
+
+# Verify the AIN0 voltage is correct (should be ~0 V when button is released)
+# If the pin is floating or wired incorrectly it may read a high voltage
+
+# Lower the threshold temporarily to verify the AIN is being read
+ros2 param set /lj_handler_node safety_voltage_threshold 4.5
+
+# Change the pin if needed (only when emergency is not active)
+ros2 param set /lj_handler_node safety_ain_pin AIN1
 ```
 
 ### "Failed to read nominal voltages"

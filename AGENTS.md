@@ -266,3 +266,52 @@ def generate_launch_description():
 - No dedicated unit tests exist; testing relies on ament linters
 - The node requires a LabJack T7 device connected via USB
 - Safety timeout automatically zeros throttle if no commands received
+
+## Emergency Brake Safety Rule
+
+### Overview
+
+A dedicated 50 Hz timer (`check_safety_ain()`) polls an analog input pin on the LabJack T7 that is wired to a hardware safety button. When the button is pressed it drives the line to 5 V; the node detects this and immediately applies 100% brake via the existing `set_throttle_brake(-1.0)` path.
+
+**Motivation:** The safety button cuts the vehicle's engine/power but does not stop the vehicle from rolling. This node must actively apply the brake actuator.
+
+### Key parameters
+
+| Parameter | Default | Reconfigurable at runtime |
+|---|---|---|
+| `safety_ain_pin` | `"AIN0"` | Yes — blocked while emergency is active |
+| `safety_voltage_threshold` | `4.0` (V) | Yes |
+| `safety_ain_check_period` | `0.02` s (50 Hz) | No — requires restart |
+
+### Implementation locations
+
+- `include/lj_handler_pkg/lj_handler.hpp`: member variables (`safety_ain_pin_`, `safety_voltage_threshold_`, `safety_ain_check_period_`, `emergency_brake_active_`, `consecutive_safety_ain_errors_`, `safety_ain_timer_`, `emergency_brake_pub_`) and `check_safety_ain()` declaration
+- `src/lj_handler.cpp`:
+  - Constructor: parameter declaration/reading, state init, timer and publisher creation, startup log
+  - `check_safety_ain()`: main safety poll logic (after `check_safety_timeout()`)
+  - `throttle_callback()`: early-return guard at the very top, before `last_throttle_time_` update
+  - `on_parameter_change()`: handlers for `safety_ain_pin`, `safety_voltage_threshold`, `safety_ain_check_period`
+- All three launch files: `safety_ain_pin`, `safety_voltage_threshold`, `safety_ain_check_period` args
+
+### State machine
+
+```
+Normal ──(voltage >= threshold)──────────────────► Emergency
+       ◄─(voltage < threshold, was emergency)───── Emergency
+       
+Normal ──(5 consecutive AIN read errors)─────────► Emergency
+       ──(read error, already emergency)──────────► Emergency (stay)
+       ──(read success)──────────────────────────── reset consecutive_safety_ain_errors_ = 0
+```
+
+### Behaviour when active
+
+- `set_throttle_brake(-1.0)` called every 20 ms timer tick
+- All `throttle_callback()` calls return immediately (timeout clock NOT refreshed)
+- Steering commands are NOT blocked
+- `/emergency_brake` publishes `true` on activation, `false` on release
+- On release: `set_throttle_brake(0.0)` + `throttle_timed_out_ = true` — forces fresh command before any motion resumes
+
+### Debug category
+
+The existing `"safety"` debug category covers the timeout checks. Emergency brake events are always logged at ERROR/INFO level regardless of debug categories.

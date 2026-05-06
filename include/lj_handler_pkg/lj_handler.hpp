@@ -4,6 +4,7 @@
 #include <rclcpp/rclcpp.hpp>
 #include <geometry_msgs/msg/pose_with_covariance_stamped.hpp>
 #include <std_msgs/msg/float32.hpp>
+#include <std_msgs/msg/bool.hpp>
 #include <rcl_interfaces/msg/set_parameters_result.hpp>
 #include <LabJackM.h>
 #include <set>
@@ -23,6 +24,7 @@ private:
   void throttle_callback(const std_msgs::msg::Float32::SharedPtr msg);
   void brake_callback(const std_msgs::msg::Float32::SharedPtr msg);
   void check_safety_timeout();
+  void check_safety_ain();
   
   void set_steering_ratio(double steering_ratio);
   void set_throttle_brake(double throttle_value);
@@ -106,6 +108,15 @@ private:
   rclcpp::TimerBase::SharedPtr safety_timer_;
   bool throttle_timed_out_;
   int consecutive_lj_errors_;
+
+  // Emergency brake (hardware safety button via analog input)
+  std::string safety_ain_pin_;
+  double safety_voltage_threshold_;
+  double safety_ain_check_period_;
+  bool emergency_brake_active_;
+  int consecutive_safety_ain_errors_;
+  rclcpp::TimerBase::SharedPtr safety_ain_timer_;
+  rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr emergency_brake_pub_;
 
   // Throttle lookup table (positive side only)
   std::vector<double> throttle_lut_input_;
