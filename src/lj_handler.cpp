@@ -696,7 +696,7 @@ void LJHandlerNode::check_safety_ain()
   // Successful read - reset error counter
   consecutive_safety_ain_errors_ = 0;
 
-  if (voltage >= safety_voltage_threshold_) {
+  if (voltage <= safety_voltage_threshold_) {
     // --- Button pressed ---
     if (!emergency_brake_active_) {
       // Transition: normal -> emergency
@@ -714,7 +714,7 @@ void LJHandlerNode::check_safety_ain()
                            safety_ain_pin_.c_str(), voltage);
     }
     // Apply 100% brake every tick while button is held
-    set_throttle_brake(-1.0);
+    set_throttle_brake(-0.8);
   } else {
     // --- Button released ---
     if (emergency_brake_active_) {

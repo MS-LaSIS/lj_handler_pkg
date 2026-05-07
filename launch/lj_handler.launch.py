@@ -153,7 +153,7 @@ def generate_launch_description():
 
     safety_voltage_threshold_arg = DeclareLaunchArgument(
         'safety_voltage_threshold',
-        default_value='4.0',
+        default_value='0.25',
         description='Voltage threshold (V) above which the emergency brake is triggered'
     )
 
