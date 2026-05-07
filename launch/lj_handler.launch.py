@@ -174,7 +174,7 @@ def generate_launch_description():
         },
         os.path.join(
             os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-            'config', 'throttle_lut.yaml'
+            'config', 'throttle_lut_new.yaml'
         )],
         arguments=['--ros-args', '--log-level', LaunchConfiguration('log_level')],
         emulate_tty=True,
