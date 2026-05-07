@@ -143,6 +143,26 @@ def generate_launch_description():
                     'For per-category debug output use the DEBUG env var: '
                     'DEBUG=steering,pedal,voltages,dac,safety,params  or  DEBUG=1 for all.'
     )
+
+    # Declare emergency brake parameters
+    safety_ain_pin_arg = DeclareLaunchArgument(
+        'safety_ain_pin',
+        default_value='AIN0',
+        description='LabJack analog input pin connected to the hardware safety button'
+    )
+
+    safety_voltage_threshold_arg = DeclareLaunchArgument(
+        'safety_voltage_threshold',
+        default_value='4.0',
+        description='Voltage threshold (V) above which the emergency brake is triggered'
+    )
+
+    safety_ain_check_period_arg = DeclareLaunchArgument(
+        'safety_ain_check_period',
+        default_value='0.02',
+        description='Poll period (s) for the safety AIN input (default 0.02 = 50 Hz). '
+                    'Cannot be changed at runtime - requires node restart.'
+    )
     
     # Create the lj_handler_node
     lj_handler_node = Node(
@@ -171,6 +191,9 @@ def generate_launch_description():
             'input_mode': LaunchConfiguration('input_mode'),
             'steering_offset': LaunchConfiguration('steering_offset'),
             'throttle_offset': LaunchConfiguration('throttle_offset'),
+            'safety_ain_pin': LaunchConfiguration('safety_ain_pin'),
+            'safety_voltage_threshold': LaunchConfiguration('safety_voltage_threshold'),
+            'safety_ain_check_period': LaunchConfiguration('safety_ain_check_period'),
         },
         os.path.join(
             os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
@@ -209,6 +232,10 @@ def generate_launch_description():
         input_mode_arg,
         steering_offset_arg,
         throttle_offset_arg,
+        # Emergency brake
+        safety_ain_pin_arg,
+        safety_voltage_threshold_arg,
+        safety_ain_check_period_arg,
         # Logging
         log_level_arg,
         # Node
