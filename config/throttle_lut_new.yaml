@@ -1,0 +1,30 @@
+lj_handler_node:
+  ros__parameters:
+    # Throttle Lookup Table (LUT) for non-linear accelerator compensation.
+    #
+    # This is a LINEARIZATION / INVERSE mapping:
+    #   input:  desired vehicle response  [0.0 = no throttle, 1.0 = full throttle]
+    #   output: corrected command to send [0.0 = no throttle, 1.0 = full throttle]
+    #
+    # Derived from measured characterization data (commanded ratio -> actual response):
+    #   command 0.28  -> response 0.005
+    #   command 0.3   -> response 0.045
+    #   command 0.325 -> response 0.092
+    #   ...
+    #   command 0.85  -> response 1.0    [saturated: higher commands not needed]
+    #   command 0.875 / 0.9 -> (no data) [omitted: already at full response]
+    #
+    # The table is inverted so the node compensates the non-linearity:
+    #   "to achieve desired response X, the node must actually command Y"
+    #
+    # Interpolation: monotone cubic (Fritsch-Carlson) - smooth, no overshoots.
+    # Rules: same length, input strictly monotonically increasing, all values in [0.0, 1.0].
+    # If invalid or empty, the node falls back to linear mapping with a warning.
+
+    throttle_lut_output: [0.0,   0.28,  0.3,    0.35,   0.4,
+                          0.45,   0.5,   0.55,   0.6,   
+                          0.65,   0.7,   0.75,   0.8,   0.85,  0.9]
+
+    throttle_lut_input:  [0.0,   0.007, 0.025, 0.118, 0.216, 0.305,  0.395, 0.486, 0.569, 0.651, 0.734, 0.818, 0.887, 0.973, 1.0]
+
+
