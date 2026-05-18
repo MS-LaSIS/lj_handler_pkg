@@ -589,7 +589,7 @@ void LJHandlerNode::steering_callback(const std_msgs::msg::Float32::SharedPtr ms
     // Input is already a ratio from -1.0 to 1.0
     // -1.0 = full left, 0.0 = center, 1.0 = full right
     // TODO: check the correct direction of the ratio (may need to invert)
-    steering_ratio = msg->data + steering_offset_;
+    steering_ratio = -msg->data + steering_offset_;
     steering_ratio = std::max(-1.0, std::min(1.0, steering_ratio));
     if (is_debug("steering")) {
       RCLCPP_INFO(this->get_logger(), "[steering] ratio mode: raw=%.3f offset=%.3f -> ratio=%.3f",
@@ -605,6 +605,7 @@ void LJHandlerNode::steering_callback(const std_msgs::msg::Float32::SharedPtr ms
       // "rad" (default)
       steering_deg = msg->data * 180.0 / M_PI;
     }
+    steering_deg = -steering_deg + steering_offset_; // Apply offset in degrees for angle mode
 
     if (steering_lut_enabled_) {
       // LUT path: angle_deg -> ratio directly from measured characterization data.
