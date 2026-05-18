@@ -66,6 +66,16 @@ LJHandlerNode::LJHandlerNode() : Node("lj_handler")
   // Declare throttle LUT parameters (loaded from config/throttle_lut.yaml)
   this->declare_parameter<std::vector<double>>("throttle_lut_input",  std::vector<double>{});
   this->declare_parameter<std::vector<double>>("throttle_lut_output", std::vector<double>{});
+
+  // Declare steering LUT parameters (loaded from config/steering_lut.yaml)
+  // input:  steering angle in degrees (sorted ascending, negative=left, positive=right)
+  // output: steering ratio in [-0.5, 0.5]
+  this->declare_parameter<std::vector<double>>("steering_lut_input",  std::vector<double>{});
+  this->declare_parameter<std::vector<double>>("steering_lut_output", std::vector<double>{});
+
+  // Declare steering input unit: "rad" (default, backwards-compatible) or "deg"
+  // Only applies in input_mode == "angle"; ignored in "ratio" mode.
+  this->declare_parameter<std::string>("steering_input_unit", "rad");
   
   // Get parameters
   nominal_vs_steer_master_pin_ = this->get_parameter("nominal_vs_steer_M_pin").as_string();
@@ -114,6 +124,23 @@ LJHandlerNode::LJHandlerNode() : Node("lj_handler")
     } else {
       RCLCPP_INFO(this->get_logger(),
                   "Throttle LUT not configured - using linear mapping");
+    }
+  }
+
+  // Load steering LUT
+  steering_lut_enabled_ = false;
+  steering_input_unit_ = this->get_parameter("steering_input_unit").as_string();
+  {
+    auto slut_in  = this->get_parameter("steering_lut_input").as_double_array();
+    auto slut_out = this->get_parameter("steering_lut_output").as_double_array();
+    if (!slut_in.empty() || !slut_out.empty()) {
+      if (!validate_and_load_steering_lut(slut_in, slut_out)) {
+        RCLCPP_WARN(this->get_logger(),
+                    "Steering LUT invalid at startup - falling back to linear angle mapping");
+      }
+    } else {
+      RCLCPP_INFO(this->get_logger(),
+                  "Steering LUT not configured - using linear angle/max_steering_angle mapping");
     }
   }
   
@@ -228,6 +255,15 @@ LJHandlerNode::LJHandlerNode() : Node("lj_handler")
                 throttle_lut_input_.size());
   } else {
     RCLCPP_INFO(this->get_logger(), "Throttle LUT disabled: using linear mapping for positive throttle");
+  }
+  if (steering_lut_enabled_) {
+    RCLCPP_INFO(this->get_logger(),
+                "Steering LUT active: %zu points, monotone cubic interpolation, input_unit=%s",
+                steering_lut_input_.size(), steering_input_unit_.c_str());
+  } else {
+    RCLCPP_INFO(this->get_logger(),
+                "Steering LUT disabled: using linear angle/max_steering_angle mapping, input_unit=%s",
+                steering_input_unit_.c_str());
   }
   RCLCPP_INFO(this->get_logger(),
               "Emergency brake: pin=%s threshold=%.2fV poll=%.0fHz",
@@ -386,6 +422,55 @@ rcl_interfaces::msg::SetParametersResult LJHandlerNode::on_parameter_change(
       input_mode_ = new_val;
     }
 
+    // --- Steering input unit ---
+    else if (name == "steering_input_unit") {
+      std::string new_val = param.as_string();
+      if (new_val != "rad" && new_val != "deg") {
+        result.successful = false;
+        result.reason = "steering_input_unit must be \"rad\" or \"deg\", got: " + new_val;
+        RCLCPP_WARN(this->get_logger(), "%s", result.reason.c_str());
+        break;
+      }
+      if (is_debug("params")) {
+        RCLCPP_INFO(this->get_logger(),
+                    "[params] steering_input_unit \"%s\" -> \"%s\"",
+                    steering_input_unit_.c_str(), new_val.c_str());
+      }
+      steering_input_unit_ = new_val;
+    }
+
+    // --- Steering LUT parameters ---
+    else if (name == "steering_lut_input" || name == "steering_lut_output") {
+      std::vector<double> new_in, new_out;
+      if (name == "steering_lut_input") {
+        new_in  = param.as_double_array();
+        new_out = this->get_parameter("steering_lut_output").as_double_array();
+      } else {
+        new_in  = this->get_parameter("steering_lut_input").as_double_array();
+        new_out = param.as_double_array();
+      }
+
+      if (new_in.empty() && new_out.empty()) {
+        steering_lut_enabled_ = false;
+        steering_lut_input_.clear();
+        steering_lut_output_.clear();
+        RCLCPP_INFO(this->get_logger(), "[params] Steering LUT cleared - using linear mapping");
+      } else if (!validate_and_load_steering_lut(new_in, new_out)) {
+        steering_lut_enabled_ = false;
+        RCLCPP_WARN(this->get_logger(),
+                    "[params] Steering LUT update rejected - keeping previous state");
+        result.successful = false;
+        result.reason = "steering_lut invalid: check sizes match, input is strictly monotonic, "
+                        "and output values are in [-1.0, 1.0]";
+        break;
+      } else {
+        if (is_debug("params")) {
+          RCLCPP_INFO(this->get_logger(),
+                      "[params] Steering LUT updated: %zu points", steering_lut_input_.size());
+        }
+      }
+    }
+
     // --- Throttle LUT parameters ---
     else if (name == "throttle_lut_input" || name == "throttle_lut_output") {
       // Safety guard: do not change LUT while throttle is active
@@ -511,21 +596,43 @@ void LJHandlerNode::steering_callback(const std_msgs::msg::Float32::SharedPtr ms
                   msg->data, steering_offset_, steering_ratio);
     }
   } else {
-    // Default: "angle" mode - input is in radians from controller
-    // Convert to degrees
-    double steering_deg = msg->data * 180.0 / M_PI;
-    // Clamp to steering clip
-    steering_deg = std::max(-steering_clip_, std::min(steering_clip_, steering_deg));
-    // Invert direction
-    steering_deg = steering_deg * -1.0;
-    // Convert degrees to ratio: -max_angle -> -1.0, 0 -> 0.0, +max_angle -> 1.0
-    steering_ratio = steering_deg / max_steering_angle_;
-    steering_ratio += steering_offset_;
-    steering_ratio = std::max(-1.0, std::min(1.0, steering_ratio));
-    if (is_debug("steering")) {
-      RCLCPP_INFO(this->get_logger(),
-                  "[steering] angle mode: %.2f rad -> %.2f deg -> ratio=%.3f",
-                  msg->data, steering_deg, steering_ratio);
+    // Default: "angle" mode - input is an angle from controller
+    // Convert to degrees based on steering_input_unit_
+    double steering_deg;
+    if (steering_input_unit_ == "deg") {
+      steering_deg = msg->data;
+    } else {
+      // "rad" (default)
+      steering_deg = msg->data * 180.0 / M_PI;
+    }
+
+    if (steering_lut_enabled_) {
+      // LUT path: angle_deg -> ratio directly from measured characterization data.
+      // No clip, no direction inversion - the LUT encodes the full physical mapping.
+      double angle_clamped = std::max(steering_lut_input_.front(),
+                                      std::min(steering_lut_input_.back(), steering_deg));
+      steering_ratio = apply_steering_lut(angle_clamped);
+      steering_ratio += steering_offset_;
+      if (is_debug("steering")) {
+        RCLCPP_INFO(this->get_logger(),
+                    "[steering] LUT mode: %.4f %s -> %.2f deg (clamped: %.2f) -> ratio=%.4f",
+                    msg->data, steering_input_unit_.c_str(), steering_deg,
+                    angle_clamped, steering_ratio);
+      }
+    } else {
+      // Linear path (existing behaviour)
+      // Clamp to steering clip
+      steering_deg = std::max(-steering_clip_, std::min(steering_clip_, steering_deg));
+
+      // Convert degrees to ratio: -max_angle -> -1.0, 0 -> 0.0, +max_angle -> 1.0
+      steering_ratio = steering_deg / max_steering_angle_;
+      steering_ratio += steering_offset_;
+      steering_ratio = std::max(-1.0, std::min(1.0, steering_ratio));
+      if (is_debug("steering")) {
+        RCLCPP_INFO(this->get_logger(),
+                    "[steering] linear mode: %.4f %s -> %.2f deg -> ratio=%.4f",
+                    msg->data, steering_input_unit_.c_str(), steering_deg, steering_ratio);
+      }
     }
   }
   
@@ -1000,6 +1107,114 @@ double LJHandlerNode::apply_throttle_lut(double x)
 
   // Clamp output to [0.0, 1.0] as safety guard
   return std::max(0.0, std::min(1.0, result));
+}
+
+bool LJHandlerNode::validate_and_load_steering_lut(
+  const std::vector<double> & in,
+  const std::vector<double> & out)
+{
+  // Must have at least 2 points and equal size
+  if (in.size() < 2 || in.size() != out.size()) {
+    RCLCPP_WARN(this->get_logger(),
+                "Steering LUT validation failed: need >= 2 points with matching sizes "
+                "(got input=%zu, output=%zu)", in.size(), out.size());
+    return false;
+  }
+
+  // Input (angles) must be strictly monotonically increasing;
+  // Output (ratios) must be in [-1.0, 1.0]
+  for (size_t i = 0; i < in.size(); ++i) {
+    if (out[i] < -1.0 || out[i] > 1.0) {
+      RCLCPP_WARN(this->get_logger(),
+                  "Steering LUT validation failed: output ratio out of [-1.0, 1.0] at index %zu "
+                  "(in=%.3f, out=%.3f)", i, in[i], out[i]);
+      return false;
+    }
+    if (i > 0 && in[i] <= in[i - 1]) {
+      RCLCPP_WARN(this->get_logger(),
+                  "Steering LUT validation failed: input not strictly monotonic at index %zu "
+                  "(in[%zu]=%.3f <= in[%zu]=%.3f)", i, i, in[i], i - 1, in[i - 1]);
+      return false;
+    }
+  }
+
+  steering_lut_input_   = in;
+  steering_lut_output_  = out;
+  steering_lut_enabled_ = true;
+  return true;
+}
+
+double LJHandlerNode::apply_steering_lut(double angle_deg)
+{
+  // Clamp input to LUT range
+  angle_deg = std::max(steering_lut_input_.front(),
+                       std::min(steering_lut_input_.back(), angle_deg));
+
+  const auto & xs = steering_lut_input_;
+  const auto & ys = steering_lut_output_;
+  const size_t n  = xs.size();
+
+  // Boundary conditions
+  if (angle_deg <= xs.front()) { return ys.front(); }
+  if (angle_deg >= xs.back())  { return ys.back(); }
+
+  // Find segment: xs[i-1] <= angle_deg < xs[i]
+  size_t i = static_cast<size_t>(
+    std::lower_bound(xs.begin(), xs.end(), angle_deg) - xs.begin());
+  if (i == 0) { i = 1; }
+
+  // --- Fritsch-Carlson monotone cubic interpolation ---
+  auto secant = [&](size_t k) {
+    return (ys[k] - ys[k - 1]) / (xs[k] - xs[k - 1]);
+  };
+
+  // Tangent at left point (i-1)
+  double m0;
+  if (i == 1) {
+    m0 = secant(1);
+  } else {
+    m0 = 0.5 * (secant(i - 1) + secant(i));
+  }
+
+  // Tangent at right point (i)
+  double m1;
+  if (i == n - 1) {
+    m1 = secant(n - 1);
+  } else {
+    m1 = 0.5 * (secant(i) + secant(i + 1));
+  }
+
+  // Fritsch-Carlson monotonicity constraint
+  double delta = secant(i);
+  if (std::abs(delta) < 1e-12) {
+    m0 = 0.0;
+    m1 = 0.0;
+  } else {
+    double alpha = m0 / delta;
+    double beta  = m1 / delta;
+    double r     = alpha * alpha + beta * beta;
+    if (r > 9.0) {
+      double tau = 3.0 / std::sqrt(r);
+      m0 = tau * alpha * delta;
+      m1 = tau * beta  * delta;
+    }
+  }
+
+  // Cubic Hermite evaluation
+  double h  = xs[i] - xs[i - 1];
+  double t  = (angle_deg - xs[i - 1]) / h;
+  double t2 = t * t;
+  double t3 = t2 * t;
+
+  double h00 =  2.0 * t3 - 3.0 * t2 + 1.0;
+  double h10 =        t3 - 2.0 * t2 + t;
+  double h01 = -2.0 * t3 + 3.0 * t2;
+  double h11 =        t3 -       t2;
+
+  double result = h00 * ys[i - 1] + h10 * h * m0 + h01 * ys[i] + h11 * h * m1;
+
+  // Clamp output to [-1.0, 1.0] as safety guard (final [-0.5, 0.5] clamp in caller)
+  return std::max(-1.0, std::min(1.0, result));
 }
 
 int main(int argc, char** argv)

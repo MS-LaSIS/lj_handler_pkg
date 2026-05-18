@@ -122,6 +122,15 @@ private:
   std::vector<double> throttle_lut_input_;
   std::vector<double> throttle_lut_output_;
   bool throttle_lut_enabled_;
+
+  // Steering lookup table (full range: angle_deg -> ratio)
+  bool validate_and_load_steering_lut(const std::vector<double> & in,
+                                      const std::vector<double> & out);
+  double apply_steering_lut(double angle_deg);  // input: degrees, output: [-0.5, 0.5]
+  std::vector<double> steering_lut_input_;   // angles in degrees (sorted ascending)
+  std::vector<double> steering_lut_output_;  // ratios in [-1.0, 1.0]
+  bool steering_lut_enabled_;
+  std::string steering_input_unit_;  // "rad" (default) or "deg"
   
   static constexpr int INITIAL_ERR_ADDRESS = -1;
   static constexpr int LJ_ERROR_WARN_THRESHOLD = 3;

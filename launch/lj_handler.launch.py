@@ -119,7 +119,14 @@ def generate_launch_description():
     input_mode_arg = DeclareLaunchArgument(
         'input_mode',
         default_value='angle',
-        description='Input mode: "angle" (radians from controller) or "ratio" (direct -1 to 1)'
+        description='Input mode: "angle" (angle from controller) or "ratio" (direct -1 to 1)'
+    )
+
+    # Declare steering input unit (only applies in angle mode)
+    steering_input_unit_arg = DeclareLaunchArgument(
+        'steering_input_unit',
+        default_value='deg',
+        description='Steering angle input unit in angle mode: "rad" (default) or "deg"'
     )
 
     # Declare offset parameters (used in ratio mode, dynamically reconfigurable)
@@ -189,6 +196,7 @@ def generate_launch_description():
             'steering_topic': LaunchConfiguration('steering_topic'),
             'throttle_topic': LaunchConfiguration('throttle_topic'),
             'input_mode': LaunchConfiguration('input_mode'),
+            'steering_input_unit': LaunchConfiguration('steering_input_unit'),
             'steering_offset': LaunchConfiguration('steering_offset'),
             'throttle_offset': LaunchConfiguration('throttle_offset'),
             'safety_ain_pin': LaunchConfiguration('safety_ain_pin'),
@@ -198,6 +206,10 @@ def generate_launch_description():
         os.path.join(
             os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
             'config', 'throttle_lut_new.yaml'
+        ),
+        os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            'config', 'steering_lut.yaml'
         )],
         arguments=['--ros-args', '--log-level', LaunchConfiguration('log_level')],
         emulate_tty=True,
@@ -230,6 +242,7 @@ def generate_launch_description():
         throttle_topic_arg,
         # Input mode and offsets
         input_mode_arg,
+        steering_input_unit_arg,
         steering_offset_arg,
         throttle_offset_arg,
         # Emergency brake
