@@ -161,7 +161,7 @@ LJHandlerNode::LJHandlerNode() : Node("lj_handler")
   last_throttle_time_ = this->get_clock()->now();
   
   // Open LabJack T7
-  int err = LJM_Open(LJM_dtT7, LJM_ctUSB, "ANY", &handle_);
+  int err = LJM_Open(LJM_dtT7, LJM_ctUSB, "470039489", &handle_);
   if (err != LJME_NOERROR) {
     char errName[LJM_MAX_NAME_SIZE];
     LJM_ErrorToString(err, errName);
@@ -175,7 +175,7 @@ LJHandlerNode::LJHandlerNode() : Node("lj_handler")
   // DAC output names
   // Steering: TDAC0=Master1, TDAC1=Master2, TDAC2=Slave1, TDAC3=Slave2
   // Throttle: TDAC4=Master1, TDAC5=Master2, TDAC6=Slave1, TDAC7=Slave2
-  steering_dac_names_ = {"TDAC0", "TDAC1", "TDAC2", "TDAC3"};
+  steering_dac_names_ = {"TDAC8", "TDAC9", "TDAC2", "TDAC3"}; // old config. TDAC0 to TDAC8, TDAC1 to TDAC9 to free up TDAC0, the FIO0 and FIO1 future use.
   throttle_dac_names_ = {"TDAC4", "TDAC5", "TDAC6", "TDAC7"};
 
   // Create subscription to steering topic

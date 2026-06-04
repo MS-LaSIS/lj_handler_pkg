@@ -39,6 +39,18 @@ target_link_libraries(${PROJECT_NAME} LabJackM)
 install(TARGETS ${PROJECT_NAME}
   DESTINATION lib/${PROJECT_NAME})
 
+# rc_input_node: reads RC PWM via LabJack T7 DIO_EF, runs throttle state machine
+add_executable(rc_input_node src/rc_input_node.cpp)
+target_include_directories(rc_input_node PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>)
+target_compile_features(rc_input_node PUBLIC c_std_99 cxx_std_17)
+ament_target_dependencies(rc_input_node rclcpp std_msgs)
+target_link_libraries(rc_input_node LabJackM)
+
+install(TARGETS rc_input_node
+  DESTINATION lib/${PROJECT_NAME})
+
 # Install launch files
 install(DIRECTORY
   launch
