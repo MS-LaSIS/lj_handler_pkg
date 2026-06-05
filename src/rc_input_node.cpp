@@ -397,6 +397,11 @@ void RCInputNode::run_state_machine(double steer_percent, bool btn_press_event)
   const double steer_ratio =
     std::max(-1.0, std::min(1.0, steer_percent / 100.0));
 
+  //remap steer ratio to radiants in range [-.383, +.383]
+  const double steer_radians = steer_ratio * 0.383;
+  std::max(-0.383, std::min(0.383, steer_radians));
+
+
   double throttle_ratio = 0.0;
 
   switch (state_) {
@@ -486,7 +491,7 @@ void RCInputNode::run_state_machine(double steer_percent, bool btn_press_event)
   {
     auto steer_msg    = std_msgs::msg::Float32();
     auto throttle_msg = std_msgs::msg::Float32();
-    steer_msg.data    = static_cast<float>(steer_ratio);
+    steer_msg.data    = static_cast<float>(steer_radians);
     throttle_msg.data = static_cast<float>(throttle_ratio);
     steering_pub_->publish(steer_msg);
     throttle_pub_->publish(throttle_msg);

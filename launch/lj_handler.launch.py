@@ -125,7 +125,7 @@ def generate_launch_description():
     # Declare steering input unit (only applies in angle mode)
     steering_input_unit_arg = DeclareLaunchArgument(
         'steering_input_unit',
-        default_value='deg',
+        default_value='rad',
         description='Steering angle input unit in angle mode: "rad" (default) or "deg"'
     )
 
