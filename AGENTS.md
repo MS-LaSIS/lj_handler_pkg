@@ -271,7 +271,7 @@ def generate_launch_description():
 
 ### Overview
 
-A dedicated 50 Hz timer (`check_safety_ain()`) polls an analog input pin on the LabJack T7 that is wired to a hardware safety button. When the button is pressed it drives the line to 5 V; the node detects this and immediately applies 100% brake via the existing `set_throttle_brake(-1.0)` path.
+A dedicated 50 Hz timer (`check_safety_ain()`) polls a digital input pin (MIO0/MIO1) on the LabJack T7 that is wired to a hardware safety button with inverted logic: **HIGH = OK, LOW = emergency**. When the line goes LOW the node immediately applies 100% brake via the existing `set_throttle_brake(-1.0)` path.
 
 **Motivation:** The safety button cuts the vehicle's engine/power but does not stop the vehicle from rolling. This node must actively apply the brake actuator.
 
@@ -279,19 +279,18 @@ A dedicated 50 Hz timer (`check_safety_ain()`) polls an analog input pin on the 
 
 | Parameter | Default | Reconfigurable at runtime |
 |---|---|---|
-| `safety_ain_pin` | `"AIN0"` | Yes — blocked while emergency is active |
-| `safety_voltage_threshold` | `4.0` (V) | Yes |
+| `safety_ain_pin` | `"MIO0"` | Yes — blocked while emergency is active |
 | `safety_ain_check_period` | `0.02` s (50 Hz) | No — requires restart |
 
 ### Implementation locations
 
-- `include/lj_handler_pkg/lj_handler.hpp`: member variables (`safety_ain_pin_`, `safety_voltage_threshold_`, `safety_ain_check_period_`, `emergency_brake_active_`, `consecutive_safety_ain_errors_`, `safety_ain_timer_`, `emergency_brake_pub_`) and `check_safety_ain()` declaration
+- `include/lj_handler_pkg/lj_handler.hpp`: member variables (`safety_ain_pin_`, `safety_ain_check_period_`, `emergency_brake_active_`, `consecutive_safety_ain_errors_`, `safety_ain_timer_`, `emergency_brake_pub_`) and `check_safety_ain()` declaration
 - `src/lj_handler.cpp`:
   - Constructor: parameter declaration/reading, state init, timer and publisher creation, startup log
   - `check_safety_ain()`: main safety poll logic (after `check_safety_timeout()`)
   - `throttle_callback()`: early-return guard at the very top, before `last_throttle_time_` update
-  - `on_parameter_change()`: handlers for `safety_ain_pin`, `safety_voltage_threshold`, `safety_ain_check_period`
-- All three launch files: `safety_ain_pin`, `safety_voltage_threshold`, `safety_ain_check_period` args
+  - `on_parameter_change()`: handler for `safety_ain_pin`, `safety_ain_check_period`
+- All three launch files: `safety_ain_pin`, `safety_ain_check_period` args
 
 ### State machine
 
