@@ -109,9 +109,8 @@ private:
   bool throttle_timed_out_;
   int consecutive_lj_errors_;
 
-  // Emergency brake (hardware safety button via analog input)
+  // Emergency brake (hardware safety button via digital input — inverted: HIGH=OK, LOW=emergency)
   std::string safety_ain_pin_;
-  double safety_voltage_threshold_;
   double safety_ain_check_period_;
   bool emergency_brake_active_;
   int consecutive_safety_ain_errors_;

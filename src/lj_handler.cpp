@@ -51,9 +51,8 @@ LJHandlerNode::LJHandlerNode() : Node("lj_handler")
   this->declare_parameter<double>("throttle_timeout", 0.5); // seconds
   this->declare_parameter<double>("safety_check_period", 0.1); // seconds
 
-  // Declare emergency brake (safety button) parameters
-  this->declare_parameter<std::string>("safety_ain_pin", "AIN0");
-  this->declare_parameter<double>("safety_voltage_threshold", 4.0); // V
+  // Declare emergency brake (safety button) parameters — digital input, inverted logic (HIGH=OK, LOW=emergency)
+  this->declare_parameter<std::string>("safety_ain_pin", "MIO0");
   this->declare_parameter<double>("safety_ain_check_period", 0.02); // seconds (50 Hz)
   
   // Declare topic parameters //TODO: set to actual topics
@@ -108,7 +107,6 @@ LJHandlerNode::LJHandlerNode() : Node("lj_handler")
 
   // Emergency brake parameters
   safety_ain_pin_ = this->get_parameter("safety_ain_pin").as_string();
-  safety_voltage_threshold_ = this->get_parameter("safety_voltage_threshold").as_double();
   safety_ain_check_period_ = this->get_parameter("safety_ain_check_period").as_double();
   
   // Load throttle LUT
@@ -175,7 +173,7 @@ LJHandlerNode::LJHandlerNode() : Node("lj_handler")
   // DAC output names
   // Steering: TDAC0=Master1, TDAC1=Master2, TDAC2=Slave1, TDAC3=Slave2
   // Throttle: TDAC4=Master1, TDAC5=Master2, TDAC6=Slave1, TDAC7=Slave2
-  steering_dac_names_ = {"TDAC8", "TDAC9", "TDAC2", "TDAC3"}; // old config. TDAC0 to TDAC8, TDAC1 to TDAC9 to free up TDAC0, the FIO0 and FIO1 future use.
+  steering_dac_names_ = {"TDAC0", "TDAC1", "TDAC2", "TDAC3"}; // old config. TDAC0 to TDAC8, TDAC1 to TDAC9 to free up TDAC0, the FIO0 and FIO1 future use.
   throttle_dac_names_ = {"TDAC4", "TDAC5", "TDAC6", "TDAC7"};
 
   // Create subscription to steering topic
@@ -266,8 +264,8 @@ LJHandlerNode::LJHandlerNode() : Node("lj_handler")
                 steering_input_unit_.c_str());
   }
   RCLCPP_INFO(this->get_logger(),
-              "Emergency brake: pin=%s threshold=%.2fV poll=%.0fHz",
-              safety_ain_pin_.c_str(), safety_voltage_threshold_,
+              "Emergency brake: digital pin=%s (inverted: HIGH=OK, LOW=emergency) poll=%.0fHz",
+              safety_ain_pin_.c_str(),
               1.0 / safety_ain_check_period_);
 }
 
@@ -558,15 +556,6 @@ rcl_interfaces::msg::SetParametersResult LJHandlerNode::on_parameter_change(
       safety_ain_pin_ = new_val;
       consecutive_safety_ain_errors_ = 0;
     }
-    else if (name == "safety_voltage_threshold") {
-      double new_val = param.as_double();
-      if (is_debug("params")) {
-        RCLCPP_INFO(this->get_logger(),
-                    "[params] safety_voltage_threshold %.3fV -> %.3fV",
-                    safety_voltage_threshold_, new_val);
-      }
-      safety_voltage_threshold_ = new_val;
-    }
     else if (name == "safety_ain_check_period") {
       result.successful = false;
       result.reason = "safety_ain_check_period cannot be changed at runtime - restart the node";
@@ -768,16 +757,16 @@ void LJHandlerNode::check_safety_timeout()
 
 void LJHandlerNode::check_safety_ain()
 {
-  // Read the hardware safety button analog input
-  double voltage = 0.0;
-  int err = LJM_eReadName(handle_, safety_ain_pin_.c_str(), &voltage);
+  // Read the hardware safety button digital input (inverted: HIGH=OK, LOW=emergency)
+  double value = 0.0;
+  int err = LJM_eReadName(handle_, safety_ain_pin_.c_str(), &value);
 
   if (err != LJME_NOERROR) {
     consecutive_safety_ain_errors_++;
     char errName[LJM_MAX_NAME_SIZE];
     LJM_ErrorToString(err, errName);
     RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 1000,
-                         "Failed to read safety AIN (%s): %s (consecutive errors: %d)",
+                         "Failed to read safety pin (%s): %s (consecutive errors: %d)",
                          safety_ain_pin_.c_str(), errName, consecutive_safety_ain_errors_);
 
     if (consecutive_safety_ain_errors_ >= 5 && !emergency_brake_active_) {
@@ -785,7 +774,7 @@ void LJHandlerNode::check_safety_ain()
       // Cannot verify button state - trigger emergency brake as fail-safe.
       emergency_brake_active_ = true;
       RCLCPP_ERROR(this->get_logger(),
-                   "EMERGENCY BRAKE TRIGGERED: safety AIN (%s) unreadable for %d consecutive "
+                   "EMERGENCY BRAKE TRIGGERED: safety pin (%s) unreadable for %d consecutive "
                    "reads (%.0f ms) - applying 100%% brake as fail-safe",
                    safety_ain_pin_.c_str(), consecutive_safety_ain_errors_,
                    consecutive_safety_ain_errors_ * 1000.0 * safety_ain_check_period_);
@@ -804,27 +793,27 @@ void LJHandlerNode::check_safety_ain()
   // Successful read - reset error counter
   consecutive_safety_ain_errors_ = 0;
 
-  if (voltage <= safety_voltage_threshold_) {
-    // --- Button pressed ---
+  if (value > 0.5) {
+    // --- HIGH = emergency triggered ---
     if (!emergency_brake_active_) {
       // Transition: normal -> emergency
       emergency_brake_active_ = true;
       RCLCPP_ERROR(this->get_logger(),
-                   "EMERGENCY BRAKE TRIGGERED: %s=%.2fV >= %.2fV - applying 100%% brake",
-                   safety_ain_pin_.c_str(), voltage, safety_voltage_threshold_);
+                   "EMERGENCY BRAKE TRIGGERED: %s=%d (LOW) - applying 100%% brake",
+                   safety_ain_pin_.c_str(), static_cast<int>(value));
       std_msgs::msg::Bool msg;
       msg.data = true;
       emergency_brake_pub_->publish(msg);
     } else {
       // Already in emergency: keep braking and log at throttled rate
       RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 1000,
-                           "Emergency brake ACTIVE: %s=%.2fV - holding 100%% brake",
-                           safety_ain_pin_.c_str(), voltage);
+                           "Emergency brake ACTIVE: %s=LOW - holding 100%% brake",
+                           safety_ain_pin_.c_str());
     }
-    // Apply 100% brake every tick while button is held
+    // Apply brake every tick while emergency is active
     set_throttle_brake(-0.8);
   } else {
-    // --- Button released ---
+    // --- HIGH = normal operation ---
     if (emergency_brake_active_) {
       // Transition: emergency -> normal
       emergency_brake_active_ = false;
@@ -833,8 +822,8 @@ void LJHandlerNode::check_safety_ain()
       set_throttle_brake(0.0);
       throttle_timed_out_ = true;
       RCLCPP_INFO(this->get_logger(),
-                  "Emergency brake RELEASED: %s=%.2fV < %.2fV - returning to zero throttle",
-                  safety_ain_pin_.c_str(), voltage, safety_voltage_threshold_);
+                  "Emergency brake RELEASED: %s=HIGH - returning to zero throttle",
+                  safety_ain_pin_.c_str());
       std_msgs::msg::Bool msg;
       msg.data = false;
       emergency_brake_pub_->publish(msg);

@@ -130,7 +130,7 @@ def generate_launch_description():
         )
         # No launch_arguments here: lj_handler.launch.py keeps all its defaults.
         # Pass lj_handler-specific overrides directly, e.g.:
-        #   ros2 launch ... safety_voltage_threshold:=0.25
+        #   ros2 launch ... safety_ain_pin:=MIO0
         # Those will be forwarded automatically through the IncludeLaunchDescription.
     )
 

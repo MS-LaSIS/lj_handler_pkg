@@ -152,23 +152,17 @@ def generate_launch_description():
                     'DEBUG=steering,pedal,voltages,dac,safety,params  or  DEBUG=1 for all.'
     )
 
-    # Declare emergency brake parameters
+    # Declare emergency brake parameters (digital input, inverted: HIGH=OK, LOW=emergency)
     safety_ain_pin_arg = DeclareLaunchArgument(
         'safety_ain_pin',
-        default_value='AIN0',
-        description='LabJack analog input pin connected to the hardware safety button'
-    )
-
-    safety_voltage_threshold_arg = DeclareLaunchArgument(
-        'safety_voltage_threshold',
-        default_value='4.0',
-        description='Voltage threshold (V) above which the emergency brake is triggered'
+        default_value='MIO0',
+        description='LabJack digital input pin (MIO0/MIO1) connected to the hardware safety button'
     )
 
     safety_ain_check_period_arg = DeclareLaunchArgument(
         'safety_ain_check_period',
         default_value='0.02',
-        description='Poll period (s) for the safety AIN input (default 0.02 = 50 Hz). '
+        description='Poll period (s) for the safety digital input (default 0.02 = 50 Hz). '
                     'Cannot be changed at runtime - requires node restart.'
     )
     
@@ -201,7 +195,6 @@ def generate_launch_description():
             'steering_offset': LaunchConfiguration('steering_offset'),
             'throttle_offset': LaunchConfiguration('throttle_offset'),
             'safety_ain_pin': LaunchConfiguration('safety_ain_pin'),
-            'safety_voltage_threshold': LaunchConfiguration('safety_voltage_threshold'),
             'safety_ain_check_period': LaunchConfiguration('safety_ain_check_period'),
         },
         os.path.join(
@@ -248,7 +241,6 @@ def generate_launch_description():
         throttle_offset_arg,
         # Emergency brake
         safety_ain_pin_arg,
-        safety_voltage_threshold_arg,
         safety_ain_check_period_arg,
         # Logging
         log_level_arg,
