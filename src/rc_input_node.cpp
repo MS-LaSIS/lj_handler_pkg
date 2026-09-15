@@ -55,6 +55,7 @@ RCInputNode::RCInputNode()
   this->declare_parameter<double>("stop_brake_ramp_time_s", 0.0);
   this->declare_parameter<std::string>("steering_topic", "/follower/steering_cmd");
   this->declare_parameter<std::string>("throttle_topic", "/follower/pedal_cmd");
+  this->declare_parameter<std::string>("labjack_serial", "470039659");
 
   // ---- Read parameters ----------------------------------------------------
   steering_pin_              = this->get_parameter("steering_pin").as_string();
@@ -72,6 +73,7 @@ RCInputNode::RCInputNode()
   stop_brake_ramp_time_s_    = this->get_parameter("stop_brake_ramp_time_s").as_double();
   steering_topic_            = this->get_parameter("steering_topic").as_string();
   throttle_topic_            = this->get_parameter("throttle_topic").as_string();
+  labjack_serial_            = this->get_parameter("labjack_serial").as_string();
 
   // ---- Publishers ---------------------------------------------------------
   steering_pub_     = this->create_publisher<std_msgs::msg::Float32>(steering_topic_, 10);
@@ -88,7 +90,7 @@ RCInputNode::RCInputNode()
   // ---- Open LabJack T7 ----------------------------------------------------
   // LJM v1.20+ spawns a gRPC daemon automatically, so multiple processes can
   // safely open the same T7 over USB without conflict.
-  int err = LJM_Open(LJM_dtT7, LJM_ctUSB, "470039659", &handle_);
+  int err = LJM_Open(LJM_dtT7, LJM_ctUSB, labjack_serial_.c_str(), &handle_);
   if (err != LJME_NOERROR) {
     char err_name[LJM_MAX_NAME_SIZE];
     LJM_ErrorToString(err, err_name);
@@ -99,6 +101,7 @@ RCInputNode::RCInputNode()
     return;
   }
   RCLCPP_INFO(this->get_logger(), "LabJack T7 opened (handle=%d).", handle_);
+  RCLCPP_INFO(this->get_logger(), "LabJack serial: %s", labjack_serial_.c_str());
 
   // ---- Configure DIO_EF PWM inputs ----------------------------------------
   setup_pwm_inputs();

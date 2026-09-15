@@ -2,6 +2,7 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
+from launch_ros.parameter_descriptions import ParameterValue
 
 
 def generate_launch_description():
@@ -107,6 +108,12 @@ def generate_launch_description():
         description='ROS log level (debug, info, warn, error, fatal)'
     )
 
+    labjack_serial_arg = DeclareLaunchArgument(
+        'labjack_serial',
+        default_value='470039659',
+        description='LabJack T7 serial number (use "ANY" for auto-detect)'
+    )
+
     # ---- Node ---------------------------------------------------------------
     rc_input_node = Node(
         package='lj_handler_pkg',
@@ -130,6 +137,7 @@ def generate_launch_description():
             'stop_brake_ramp_time_s':   LaunchConfiguration('stop_brake_ramp_time_s'),
             'steering_topic':           LaunchConfiguration('steering_topic'),
             'throttle_topic':           LaunchConfiguration('throttle_topic'),
+            'labjack_serial': ParameterValue(LaunchConfiguration('labjack_serial'), value_type=str),
         }],
         arguments=['--ros-args', '--log-level', LaunchConfiguration('log_level')],
     )
@@ -150,6 +158,7 @@ def generate_launch_description():
         stop_brake_ramp_time_s_arg,
         steering_topic_arg,
         throttle_topic_arg,
+        labjack_serial_arg,
         log_level_arg,
         rc_input_node,
     ])

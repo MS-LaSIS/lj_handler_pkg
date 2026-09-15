@@ -64,6 +64,7 @@ private:
 
   // ---- LJM ----------------------------------------------------------------
   int handle_;
+  std::string labjack_serial_;
 
   // ---- Pin names (LJM register prefixes, e.g. "DIO0") --------------------
   std::string steering_pin_;

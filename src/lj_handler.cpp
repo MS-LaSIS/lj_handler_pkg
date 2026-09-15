@@ -22,6 +22,7 @@ LJHandlerNode::LJHandlerNode() : Node("lj_handler")
   this->declare_parameter<std::string>("nominal_vs_steer_S_pin", "AIN12");
   this->declare_parameter<std::string>("nominal_vs_accbrake_M_pin", "AIN6");
   this->declare_parameter<std::string>("nominal_vs_accbrake_S_pin", "AIN8");
+  this->declare_parameter<std::string>("labjack_serial", "ANY");
   
   // Declare voltage range parameters
   this->declare_parameter<double>("input_voltage_min", 0.1);
@@ -81,6 +82,7 @@ LJHandlerNode::LJHandlerNode() : Node("lj_handler")
   nominal_vs_steer_slave_pin_ = this->get_parameter("nominal_vs_steer_S_pin").as_string();
   nominal_vs_accbrake_master_pin_ = this->get_parameter("nominal_vs_accbrake_M_pin").as_string();
   nominal_vs_accbrake_slave_pin_ = this->get_parameter("nominal_vs_accbrake_S_pin").as_string();
+  labjack_serial_ = this->get_parameter("labjack_serial").as_string();
   
   input_voltage_min_ = this->get_parameter("input_voltage_min").as_double();
   input_voltage_max_ = this->get_parameter("input_voltage_max").as_double();
@@ -159,7 +161,7 @@ LJHandlerNode::LJHandlerNode() : Node("lj_handler")
   last_throttle_time_ = this->get_clock()->now();
   
   // Open LabJack T7
-  int err = LJM_Open(LJM_dtT7, LJM_ctUSB, "470039489", &handle_);
+  int err = LJM_Open(LJM_dtT7, LJM_ctUSB, labjack_serial_.c_str(), &handle_);
   if (err != LJME_NOERROR) {
     char errName[LJM_MAX_NAME_SIZE];
     LJM_ErrorToString(err, errName);
@@ -169,6 +171,7 @@ LJHandlerNode::LJHandlerNode() : Node("lj_handler")
   }
   
   RCLCPP_INFO(this->get_logger(), "LabJack T7 opened successfully");
+  RCLCPP_INFO(this->get_logger(), "LabJack serial: %s", labjack_serial_.c_str());
   
   // DAC output names
   // Steering: TDAC0=Master1, TDAC1=Master2, TDAC2=Slave1, TDAC3=Slave2

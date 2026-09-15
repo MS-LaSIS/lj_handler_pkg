@@ -49,10 +49,11 @@ private:
   // LabJack handle and parameters
   bool wait_remove_brake;
   int handle_;
-  std::string nominal_vs_steer_master_pin_;
-  std::string nominal_vs_steer_slave_pin_;
-  std::string nominal_vs_accbrake_master_pin_;
-  std::string nominal_vs_accbrake_slave_pin_;
+   std::string nominal_vs_steer_master_pin_;
+   std::string nominal_vs_steer_slave_pin_;
+   std::string nominal_vs_accbrake_master_pin_;
+   std::string nominal_vs_accbrake_slave_pin_;
+   std::string labjack_serial_;
   
   std::vector<std::string> steering_dac_names_;
   std::vector<std::string> throttle_dac_names_;

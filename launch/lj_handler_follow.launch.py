@@ -2,6 +2,7 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
+from launch_ros.parameter_descriptions import ParameterValue
 from ament_index_python.packages import get_package_share_directory
 import os
 
@@ -165,6 +166,12 @@ def generate_launch_description():
         description='Poll period (s) for the safety digital input (default 0.02 = 50 Hz). '
                     'Cannot be changed at runtime - requires node restart.'
     )
+
+    labjack_serial_arg = DeclareLaunchArgument(
+        'labjack_serial',
+        default_value='470039489',
+        description='LabJack T7 serial number (use "ANY" for auto-detect)'
+    )
     
     # Create the lj_handler_node
     lj_handler_node = Node(
@@ -196,6 +203,7 @@ def generate_launch_description():
             'throttle_offset': LaunchConfiguration('throttle_offset'),
             'safety_ain_pin': LaunchConfiguration('safety_ain_pin'),
             'safety_ain_check_period': LaunchConfiguration('safety_ain_check_period'),
+            'labjack_serial': ParameterValue(LaunchConfiguration('labjack_serial'), value_type=str),
         },
         os.path.join(
             get_package_share_directory('lj_handler_pkg'),
@@ -242,6 +250,8 @@ def generate_launch_description():
         # Emergency brake
         safety_ain_pin_arg,
         safety_ain_check_period_arg,
+        # LabJack identification
+        labjack_serial_arg,
         # Logging
         log_level_arg,
         # Node

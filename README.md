@@ -49,6 +49,16 @@ source install/setup.bash
 
 ### Parameters
 
+#### LabJack Identification
+- `labjack_serial` (string, default: `"470039489"` for lj_handler, `"470039659"` for rc_input): LabJack T7 serial number to open. Set to `"ANY"` for auto-detect (not recommended when two T7 devices are connected).
+
+To find the serial number of connected devices, install the LabJack Python driver and run:
+```bash
+pip install labjack-ljm
+python3 -c "from labjack import ljm; print(ljm.listAll(ljm.constants.dtANY, ljm.constants.ctANY))"
+```
+Output example: `[[7, 1, 470039489, 0]]` — device type 7 (T7), connection type 1 (USB), serial `470039489`.
+
 #### Pin Assignments
 - `nominal_vs_steer_M_pin` (string, default: "AIN10"): Master steering voltage input pin
 - `nominal_vs_steer_S_pin` (string, default: "AIN12"): Slave steering voltage input pin
