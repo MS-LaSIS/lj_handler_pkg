@@ -55,7 +55,7 @@ source install/setup.bash
 To find the serial number of connected devices, install the LabJack Python driver and run:
 ```bash
 pip install labjack-ljm
-python3 -c "from labjack import ljm; print(ljm.listAll(ljm.constants.dtANY, ljm.constants.ctANY))"
+python3.10 -c "from labjack import ljm; print(ljm.listAll(ljm.constants.dtANY, ljm.constants.ctANY))"
 ```
 Output example: `[[7, 1, 470039489, 0]]` — device type 7 (T7), connection type 1 (USB), serial `470039489`.
 
